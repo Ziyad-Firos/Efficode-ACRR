@@ -1,0 +1,114 @@
+.panel { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+.summary {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  padding: 8px 12px;
+  background: var(--surface2);
+  border-radius: 6px;
+}
+
+.group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.groupCount {
+  background: var(--surface2);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+.issueRow {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.issueRow:hover { background: var(--surface2); }
+
+.sevIcon { font-size: 0.9rem; flex-shrink: 0; padding-top: 2px; }
+
+.issueBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.issueMeta { display: flex; align-items: center; gap: 8px; }
+
+.lineNum {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: rgba(91, 143, 249, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.ruleId {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.issueMsg { font-size: 0.82rem; color: var(--text); line-height: 1.45; }
+
+/* severity left-border accents */
+.sev_error   { border-left: 3px solid var(--error); }
+.sev_warning { border-left: 3px solid var(--warning); }
+.sev_info    { border-left: 3px solid var(--info); }
+.sev_style   { border-left: 3px solid var(--border); }
+
+/* empty / loading states */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 200px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.spinner {
+  width: 24px; height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.syntaxError {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px;
+  padding: 14px;
+  background: rgba(255,107,107,0.1);
+  border: 1px solid var(--error);
+  border-radius: 8px;
+}
+.syntaxIcon { font-size: 1.4rem; }
+.syntaxError strong { display: block; margin-bottom: 4px; color: var(--error); }
+.syntaxError p { font-size: 0.85rem; font-family: var(--font-mono); color: var(--text); }
+
+.clean {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 1.2rem;
+}
+.clean strong { font-size: 1rem; color: var(--success); }
+.clean p { font-size: 0.82rem; color: var(--text-dim); }

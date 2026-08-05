@@ -1,0 +1,45 @@
+# ACRR backend — Python 3.12
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate          (Windows)
+#   pip install -r requirements.txt
+#
+# Note: this project targets Python 3.12. Python 3.13+ is untested and
+# 3.15 betas have no prebuilt scikit-learn/numpy wheels.
+
+# ── Web framework ─────────────────────────────────────────────────────────
+flask>=3.0.0
+flask-cors>=4.0.0
+python-dotenv>=1.0.0
+
+# ── Schemas ───────────────────────────────────────────────────────────────
+# models.py imports pydantic and uses v2 APIs (field_validator, model_dump).
+# This was missing from the file entirely — a fresh clone crashed on import.
+pydantic>=2.0.0
+
+# ── Code review tools ─────────────────────────────────────────────────────
+flake8>=7.0.0
+radon>=6.0.0
+bandit>=1.7.0
+
+# ── ML complexity predictor ───────────────────────────────────────────────
+# Required, not optional: /refactor returns a complexity prediction and the
+# frontend renders it. These were commented out, so a fresh clone silently
+# shipped with the core feature disabled.
+scikit-learn>=1.4.0
+joblib>=1.4.0
+numpy>=1.26.0
+
+# ── AI suggestion layer (optional at runtime) ─────────────────────────────
+# google-genai is the current SDK. The old google-generativeai package does
+# not support the new AQ-format API keys.
+google-genai>=1.0.0
+httpx>=0.27.0
+
+# ── Production server ─────────────────────────────────────────────────────
+# Flask's built-in server is single-threaded and explicitly not for
+# production. gunicorn is what Procfile/render.yaml invoke.
+gunicorn>=21.2.0
+
+# ── Tests ─────────────────────────────────────────────────────────────────
+pytest>=8.0.0

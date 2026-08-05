@@ -1,0 +1,175 @@
+
+/* ── Complexity report ─────────────────────────────────────────────────── */
+/* The headline output of the app: the predicted Big-O, how confident the
+   model is, the structural evidence behind it, and the one change that
+   would most improve it. */
+
+.complexityReport {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.bigORow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.bigOBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bigOLabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8892b0;
+}
+
+.bigOValue {
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 30px;
+  font-weight: 600;
+  color: #e6edf3;
+  line-height: 1.1;
+}
+
+.bigOImproved {
+  color: #55efc4;
+}
+
+.bigOArrow {
+  font-size: 24px;
+  color: #8892b0;
+  align-self: flex-end;
+  padding-bottom: 4px;
+}
+
+.confRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.confBarTrack {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #1a1d27;
+  overflow: hidden;
+}
+
+.confBarFill {
+  height: 100%;
+  border-radius: 3px;
+  background: currentColor;
+  transition: width 0.3s ease;
+}
+
+.confText {
+  font-size: 12px;
+  color: #8892b0;
+  white-space: nowrap;
+}
+
+.conf_high   { color: #55efc4; }
+.conf_medium { color: #ffd166; }
+.conf_low    { color: #ff6b6b; }
+
+.reasonBlock,
+.suggestionBlock {
+  border-left: 3px solid #2a2f3d;
+  padding-left: 14px;
+}
+
+.suggestionBlock {
+  border-left-color: #ffd166;
+}
+
+.reasonTitle,
+.suggestionTitle {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8892b0;
+  font-weight: 600;
+}
+
+.reasonList {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reasonItem {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #c9d1d9;
+}
+
+.suggestionText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+
+/* ── Applied changes vs advice ─────────────────────────────────────────── */
+/* A rule that only suggested something must not look like a rule that
+   rewrote the user's code. */
+
+.appliedBadge,
+.adviceBadge {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.appliedBadge {
+  color: #55efc4;
+  background: rgba(85, 239, 196, 0.12);
+}
+
+.adviceBadge {
+  color: #ffd166;
+  background: rgba(255, 209, 102, 0.12);
+}
+
+.adviceSection {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2f3d;
+}
+
+.adviceHeading {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffd166;
+  font-weight: 600;
+}
+
+.adviceIntro {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8892b0;
+}
+
+.ruleRowAdvice {
+  opacity: 0.92;
+  border-left: 2px solid rgba(255, 209, 102, 0.4);
+  padding-left: 10px;
+}

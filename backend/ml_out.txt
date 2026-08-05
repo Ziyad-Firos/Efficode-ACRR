@@ -1,0 +1,87 @@
+﻿ML Complexity Predictor ΓÇö Accuracy Test  |  http://localhost:8000
+
+  [PASS] Tier 1 | constant index access
+         expected=O(1)          got=O(1)            conf=91%
+
+  [FAIL] Tier 1 | binary search iterative
+         expected=O(log n)      got=O(n)            conf=78%
+
+  [PASS] Tier 1 | single pass max
+         expected=O(n)          got=O(n)            conf=66%
+
+  [PASS] Tier 1 | sort call
+         expected=O(n log n)    got=O(n log n)      conf=60%
+
+  [PASS] Tier 1 | nested loop pair sum
+         expected=O(n^2)        got=O(n┬▓)           conf=58%
+
+  [FAIL] Tier 1 | triple nested loop
+         expected=O(n^3)        got=O(n┬▓)           conf=45%
+
+  [FAIL] Tier 1 | naive recursive fibonacci
+         expected=O(2^n)        got=O(1)            conf=63%
+
+  [PASS] Tier 2 | two SEQUENTIAL loops (not nested) -> O(n)
+         expected=O(n)          got=O(n)            conf=85%
+         note: Heuristic trap: 2 for-loops but they're sequential not nested. Still O(n).
+
+  [FAIL] Tier 2 | single loop quadratic bound -> O(n^2)
+         expected=O(n^2)        got=O(n)            conf=62%
+         note: Depth=1 but loop bound is n*n. Model relying on depth alone guesses O(n).
+
+  [PASS] Tier 2 | triangular nested loop -> O(n^2)
+         expected=O(n^2)        got=O(n┬▓)           conf=59%
+         note: Inner range shrinks each pass ΓÇö still O(n^2)/2 = O(n^2).
+
+  [FAIL] Tier 3 | 'in' on list inside loop -> O(n^2)
+         expected=O(n^2)        got=O(n)            conf=70%
+         note: One explicit loop, but 'in' on a list is O(n) ΓÇö total O(n^2).
+
+  [FAIL] Tier 3 | recursive factorial no loops -> O(n)
+         expected=O(n)          got=O(1)            conf=63%
+         note: No for/while node. Loop-depth features see this as O(1).
+
+  [FAIL] Tier 3 | recursive binary search no loops -> O(log n)
+         expected=O(log n)      got=O(1)            conf=43%
+         note: No loops. Recursion halves input each time ΓÇö O(log n).
+
+  [FAIL] Tier 4 | sort then scan, dominant term -> O(n log n)
+         expected=O(n log n)    got=O(n)            conf=51%
+         note: sorted() dominates the O(n) scan after it.
+
+  [FAIL] Tier 4 | graph BFS -> O(V+E)
+         expected=O(V+E)        got=O(n┬▓)           conf=73%
+         note: A different shape of complexity ΓÇö not just a bigger polynomial.
+
+  [FAIL] Tier 4 | memoized fibonacci -> O(n)  [KEY TEST]
+         expected=O(n)          got=O(1)            conf=48%
+         note: CRITICAL: same recursive shape as fib_naive (O(2^n)). Same prediction for both = shape-matching not reasoning.
+
+============================================================
+KEY PAIR: fib_naive (O(2^n)) vs fib_memo (O(n))
+Same recursive AST shape ΓÇö different only by cache dict.
+Same prediction for both = shape-matching, not reasoning.
+
+
+============================================================
+AMBIGUOUS CASE (no single right answer ΓÇö check confidence)
+
+  quicksort (avg O(n log n), worst O(n^2))
+  prediction=O(1)  conf=45%
+  note: No single correct answer ΓÇö average O(n log n), worst O(n^2). Check confidence vs a Tier 1 case: it should be lower here.
+  avg Tier 1 confidence: 69%  (ambiguous case should be lower)
+
+============================================================
+  Tier 1 ΓÇö Easy/canonical        4/7  [ΓûêΓûêΓûêΓûêΓûæΓûæΓûæ]
+  Tier 2 ΓÇö Structural traps      2/3  [ΓûêΓûêΓûæ]
+  Tier 3 ΓÇö Hidden complexity     0/3  [ΓûæΓûæΓûæ]
+  Tier 4 ΓÇö Composite/real-world  0/3  [ΓûæΓûæΓûæ]
+
+  Overall: 6/16 cases matched
+
+  Interpretation:
+  - Tier 1 < 6/7 : fundamental accuracy problem, retrain with more data
+  - Tier 2 fails  : model is counting loop depth, not recognising shape
+  - Tier 3 fails  : expected ΓÇö lightweight model, no semantic understanding
+  - Tier 4 fails  : expected for fib_memo/BFS ΓÇö real complexity requires semantics
+============================================================

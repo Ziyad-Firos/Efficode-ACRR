@@ -1,0 +1,240 @@
+﻿ACRR Verification Suite  |  target: http://localhost:8000
+
+============================================================
+  1. HEALTH CHECK
+============================================================
+  [PASS] Server responds to /health
+         status=200
+  [PASS] AI configured = True (key in .env)
+         ai_configured=True
+  [PASS] Python version field present
+         {'ai_configured': True, 'status': 'ok', 'version': '1.0.0'}
+
+============================================================
+  2a. REVIEW ΓÇö Style (flake8)
+============================================================
+  [PASS] Unused import os caught (F401)
+         F401 in response: True
+  [PASS] Unused local variable caught (F841)
+         F841 in response: True
+  [PASS] Valid response shape (valid/issues/quality_score)
+         {"issues":[{"category":"style","column":1,"line":1,"message":"'os' imported but unused","rule":"F401","severity":"error"},{"category":"style","column":1,"line":2,"message":"'sys' imported but unused",
+
+============================================================
+  2b. REVIEW ΓÇö Security (bandit)
+============================================================
+  [PASS] eval() usage flagged by bandit
+         'eval' in response: True
+  [PASS] Hardcoded password flagged
+         body preview: {"issues":[{"category":"security","column":null,"line":2,"message":"Possible hardcoded password: 'hunter2' [confidence: MEDIUM]","rule":"B105","severity":"info"},{"category":"security","column":null,"line":3,"message":"Use of possibly insecure function - consider using safer ast.literal_eval. [confi
+
+============================================================
+  2c. REVIEW ΓÇö Code smells (AST)
+============================================================
+  [FAIL] Deep nesting flagged (SMELL002)
+         SMELL002 in response: False
+  [PASS] Bare except flagged (SMELL008)
+         SMELL008 in response: True
+  [PASS] Mutable default argument flagged (SMELL009)
+         SMELL009 in response: True
+  [PASS] Builtin shadow flagged (SMELL010)
+         SMELL010 in response: True
+
+============================================================
+  2d. REVIEW ΓÇö Complexity (radon)
+============================================================
+  [PASS] Trivial function gets high complexity score (>= 90)
+         trivial complexity score = 100
+  [PASS] Branchy function scores lower than trivial
+         trivial=100  branchy=90
+  [PASS] Responses differ (not constant/stubbed output)
+         responses identical: False
+
+============================================================
+  2e. REVIEW ΓÇö Quality score assembly
+============================================================
+  [PASS] Clean code scores higher than messy code
+         clean=99(A)  messy=84(B)
+  [PASS] Clean code gets grade A or B
+         clean grade = A
+  [FAIL] Messy code gets grade C or worse
+         messy grade = B
+
+============================================================
+  3a. REFACTOR ΓÇö Constant folding
+============================================================
+  [PASS] 2 + 3*4 folded to 14
+         refactored:
+         def compute():
+             x = 14
+             y = 1024
+             return x + y
+  [PASS] 2**10 folded to 1024
+         refactored:
+         def compute():
+             x = 14
+             y = 1024
+             return x + y
+  [PASS] constant_fold in applied_rules
+         applied_rules: ['constant_fold', 'constant_fold', 'constant_fold']
+
+============================================================
+  3b. REFACTOR ΓÇö Dead code removal
+============================================================
+  [PASS] Unreachable print() removed
+         refactored:
+         def f(flag):
+             if flag:
+                 return 'yes'
+             print('reachable')
+             return 'no'
+  [PASS] x = 999 removed
+         refactored:
+         def f(flag):
+             if flag:
+                 return 'yes'
+             print('reachable')
+             return 'no'
+  [PASS] Reachable print() kept
+         refactored:
+         def f(flag):
+             if flag:
+                 return 'yes'
+             print('reachable')
+             return 'no'
+  [PASS] Return value kept
+         refactored:
+         def f(flag):
+             if flag:
+                 return 'yes'
+             print('reachable')
+             return 'no'
+
+============================================================
+  3c. REFACTOR ΓÇö Unused variable removal
+============================================================
+  [PASS] Unused variable 'temp' removed
+         refactored:
+         def calc(a, b):
+             result = a + b
+             return result
+  [PASS] Used variable 'result' kept
+         refactored:
+         def calc(a, b):
+             result = a + b
+             return result
+
+============================================================
+  3d. REFACTOR ΓÇö Condition simplification
+============================================================
+  [PASS] 'x == True' simplified away
+         refactored:
+         def check(x):
+             if x:
+                 return 1
+             if not x:
+                 return 0
+             return -1
+  [PASS] 'x == False' simplified away
+         refactored:
+         def check(x):
+             if x:
+                 return 1
+             if not x:
+                 return 0
+             return -1
+
+============================================================
+  3e. REFACTOR ΓÇö Clean code not mangled (control case)
+============================================================
+  [PASS] 'def add' still present in output
+         refactored:
+         def add(a, b):
+             return a + b
+  [PASS] 'return a + b' still present
+         refactored:
+         def add(a, b):
+             return a + b
+  [PASS] No spurious rules applied to clean code
+         applied_rules: []
+
+============================================================
+  3f. REFACTOR ΓÇö Diff is non-empty when changes made
+============================================================
+  [PASS] Diff is non-empty when code changed
+         diff (first 200 chars):
+         --- original.py
+         +++ refactored.py
+         @@ -1,4 +1,2 @@
+          def f():
+         -    x = 2 * 8
+         -    unused = 99
+              return 0
+  [PASS] Diff contains --- and +++ markers
+         markers present: True / True
+
+============================================================
+  4. ML ΓÇö Complexity predictor varies with input
+============================================================
+         O(1) constant                  -> O(1)
+         O(n) single loop               -> O(n)
+         O(n^2) nested loops            -> O(n┬▓)
+         O(n^3) triple loop             -> O(n┬▓)
+  [PASS] ML predictions vary across complexity classes (not all same)
+         distinct predictions: 3 out of 4 inputs
+         predictions: {'O(1) constant': 'O(1)', 'O(n) single loop': 'O(n)', 'O(n^2) nested loops': 'O(n┬▓)', 'O(n^3) triple loop': 'O(n┬▓)'}
+  [PASS] O(1) not predicted as O(n┬▓) or worse
+         O(1) prediction: O(1)
+  [PASS] O(n^2) not predicted as O(1)
+         O(n┬▓) prediction: O(n┬▓)
+
+============================================================
+  5. AI LAYER ΓÇö Fallback and response structure
+============================================================
+  [PASS] Request completes (no 500 crash)
+         status=200
+  [PASS] rule-based results present regardless of AI state
+         ai_available=False
+  [PASS] ai_available field is a bool (not missing/null)
+         ai_available=False
+  [PASS] ai_suggestions is a list (not null/missing)
+         ai_suggestions type: list
+  [PASS] ai_suggestions is empty list when unavailable (quota or no key)
+         EXPECTED TODAY ΓÇö quota resets at midnight Pacific. Run again after reset.
+
+============================================================
+  6. RELIABILITY ΓÇö Adversarial inputs
+============================================================
+  [PASS] Empty code: no 500
+         status=400
+  [PASS] Broken syntax: no 500
+         status=200
+  [PASS] Broken syntax: valid=false in response
+         valid=False
+  [PASS] Wrong type for 'code': rejected (400/422, not 500)
+         status=400
+  [PASS] Missing 'code' field: rejected (400/422)
+         status=400
+  [PASS] Unicode in code: no 500
+         status=200
+  [FAIL] test_reliability
+         suite raised ChunkedEncodingError: ("Connection broken: ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)", ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))
+
+============================================================
+  7. RELIABILITY ΓÇö Concurrent requests don't cross-contaminate
+============================================================
+  [PASS] Concurrent requests don't bleed into each other
+         failure = shared temp-file names across subprocess calls
+
+============================================================
+  RESULT: 47/50 checks passed
+
+  FAILURES:
+    FAIL: Deep nesting flagged (SMELL002)
+          SMELL002 in response: False
+    FAIL: Messy code gets grade C or worse
+          messy grade = B
+    FAIL: test_reliability
+          suite raised ChunkedEncodingError: ("Connection broken: ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)", ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))
+============================================================
+

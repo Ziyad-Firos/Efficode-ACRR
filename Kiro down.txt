@@ -1,0 +1,61 @@
+What we did was basically bypass the normal installer flow and give the installer a specific instruction from the command line.
+
+Here is the sequence:
+
+You started with the normal installer
+File:
+kiro-ide-1.0.212-stable-win32-x64.exe
+
+The installer was not showing a place to choose an installation folder.
+We discovered you were using PowerShell
+PowerShell does not automatically run programs from the current folder.
+That's why this failed:
+ ```powershell
+ kiro-ide-1.0.212-stable-win32-x64.exe
+ ```
+
+PowerShell was saying: "I see the file, but you didn't explicitly tell me to run the file here."
+We added .\
+This tells PowerShell:
+
+"Run this executable from the current directory."
+
+So:
+ ```powershell
+ .\kiro-ide-1.0.212-stable-win32-x64.exe
+ ```
+
+ means:
+ > Execute the installer that is in this folder.
+
+We asked the installer for its available command-line options
+.\kiro-ide-1.0.212-stable-win32-x64.exe /?
+
+
+The installer opened its help information and showed us that it supports:
+
+/DIR="x:\dirname"
+
+
+Meaning:
+
+"You can override the default installation directory."
+
+We used /DIR to choose the installation location
+
+Example:
+
+.\kiro-ide-1.0.212-stable-win32-x64.exe /DIR="C:\Users\ronny\My Projects\Kiro"
+
+
+This tells the installer:
+
+Install Kiro here instead of the default folder.
+
+So the three important concepts you learned are:
+
+.\ → Run a program from the current PowerShell folder
+/? → Ask an installer what command-line options it supports
+/DIR="..." → Override the install location
+
+This same technique works with many Windows installers, especially ones built with tools like Inno Setup. You can often customize installation behavior without changing settings inside the installer UI.

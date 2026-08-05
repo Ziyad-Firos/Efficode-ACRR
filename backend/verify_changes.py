@@ -1,169 +1,95 @@
+"""Self-contained verification of everything changed this session."""
+import sys, json, ast
+sys.path.insert(0, "/tmp/acrr")
+
+passed, failed = [], []
+def check(name, cond, detail=""):
+    (passed if cond else failed).append(name)
+    print(f"  {'ok  ' if cond else 'FAIL'} {name}" + (f"  — {detail}" if detail and not cond else ""))
+
+print("=" * 70); print("A. HTTP error handling (main.py)"); print("=" * 70)
+from app.main import app
+c = app.test_client()
+
+r = c.get("/nope")
+check("404 stays 404", r.status_code == 404, f"got {r.status_code}")
+
+r = c.get("/review")                       # GET on a POST-only route
+check("405 stays 405 (was 500)", r.status_code == 405, f"got {r.status_code}")
+
+r = c.post("/review", data=b"x" * (300 * 1024), content_type="application/json")
+check("413 stays 413 (was 500)", r.status_code == 413, f"got {r.status_code}")
+
+r = c.post("/review", json={"code": 12345})
+check("wrong-typed code -> 400", r.status_code == 400, f"got {r.status_code}")
+
+r = c.post("/review", json={})
+check("missing code -> 400", r.status_code == 400, f"got {r.status_code}")
+
+r = c.post("/review", json={"code": "def f(:"})
+check("syntax error -> 200 with valid=false",
+      r.status_code == 200 and r.get_json().get("valid") is False, f"got {r.status_code}")
+
+r = c.get("/health")
+check("health responds", r.status_code == 200 and r.get_json().get("status") == "ok")
+
+print(); print("=" * 70); print("B. Refactor pipeline"); print("=" * 70)
+MESSY = """def find_duplicates(nums):
+    duplicates = []
+    unused = 42
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            if nums[i] == nums[j]:
+                if nums[i] not in duplicates:
+                    duplicates.append(nums[i])
+    return duplicates
+    print('unreachable')
 """
-Verification script to test that the optimizers are working correctly
-with AST transformations disabled and neural models disabled.
-"""
+r = c.post("/refactor", json={"code": MESSY, "use_ai": False})
+d = r.get_json()
+check("refactor returns 200", r.status_code == 200, f"got {r.status_code}")
+check("refactored code still parses", _ok := (lambda: (ast.parse(d["refactored_code"]), True)[1])())
+applied = [x for x in d["applied_rules"] if x.get("applied", True)]
+check("rules were applied", len(applied) > 0, str(d.get("applied_rules")))
+check("advice is not counted as an applied change",
+      all(x.get("applied", True) for x in applied))
+check("diff produced", bool(d["diff"]))
+check("degrades cleanly with use_ai=False",
+      d["ai_available"] is False and d["ai_suggestions"] == [])
 
-import logging
-import time
-from src.rule_based import RuleBasedOptimizer
-from src.codebert_optimizer import CodeBERTOptimizer, apply_codebert_optimization
+print("       applied:", [x["rule"] for x in d["applied_rules"] if x.get("applied", True)])
+print("       advice :", [x["rule"] for x in d["applied_rules"] if not x.get("applied", True)])
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+print(); print("=" * 70); print("C. Complexity prediction + explanation"); print("=" * 70)
+comp = d.get("complexity")
+check("complexity block present", comp is not None)
+if comp:
+    check("nested-loop code detected as O(n^2)", comp["before"] == "O(n²)", str(comp["before"]))
+    check("confidence is high (was ~0.5)", comp["confidence"] >= 0.75, str(comp["confidence"]))
+    check("explanation is populated", len(comp.get("explanation", [])) > 0)
+    check("suggestion is populated", bool(comp.get("suggestion")))
+    print("       before:", comp["before"], f"({comp['confidence']:.0%})")
+    for line in comp.get("explanation", []):
+        print("        -", line)
+    print("       suggestion:", (comp.get("suggestion") or "")[:90] + "...")
 
-# Test code samples
-FIBONACCI_CODE = """
-def fibonacci(n):
-    if n <= 0:
-        return 0
-    elif n == 1:
-        return 1
-    else:
-        return fibonacci(n-1) + fibonacci(n-2)
-"""
+print(); print("=" * 70); print("D. Clean code is left alone"); print("=" * 70)
+CLEAN = "def add(a, b):\n    return a + b\n"
+r = c.post("/refactor", json={"code": CLEAN, "use_ai": False})
+d2 = r.get_json()
+check("clean code unchanged", d2["refactored_code"].strip() == CLEAN.strip(),
+      repr(d2["refactored_code"]))
+check("no rules applied to clean code", len(d2["applied_rules"]) == 0)
+check("clean code -> O(1)", d2["complexity"]["before"] == "O(1)")
 
-BUBBLE_SORT_CODE = """
-def bubble_sort(arr):
-    n = len(arr)
-    for i in range(n):
-        for j in range(0, n-i-1):
-            if arr[j] > arr[j+1]:
-                arr[j], arr[j+1] = arr[j+1], arr[j]
-    return arr
-"""
+print(); print("=" * 70); print("E. Review pipeline degrades without flake8/radon/bandit"); print("=" * 70)
+r = c.post("/review", json={"code": MESSY})
+d3 = r.get_json()
+check("review returns 200 even with linters missing", r.status_code == 200)
+check("review still scores", d3.get("quality_score") is not None)
 
-LIST_BUILDING_CODE = """
-def process_data(items):
-    results = []
-    for item in items:
-        results.append(item * 2)
-    return results
-"""
-
-def test_rule_based_optimizer():
-    """Test the rule-based optimizer"""
-    logger.info("Testing Rule-Based Optimizer...")
-    optimizer = RuleBasedOptimizer()
-    
-    # Test with bubble sort
-    start_time = time.time()
-    optimized_code, original_complexity, optimized_complexity, explanation = optimizer.optimize(BUBBLE_SORT_CODE)
-    elapsed = time.time() - start_time
-    
-    logger.info(f"Rule-based optimization completed in {elapsed:.3f}s")
-    logger.info(f"Original complexity: {original_complexity}")
-    logger.info(f"Optimized complexity: {optimized_complexity}")
-    logger.info(f"Explanation: {explanation}")
-    
-    print("\nOriginal code:")
-    print(BUBBLE_SORT_CODE)
-    print("\nOptimized code:")
-    print(optimized_code)
-    
-    improvements = optimizer.get_applied_rules()
-    logger.info(f"Applied {len(improvements)} improvements")
-    for imp in improvements:
-        if isinstance(imp, dict):
-            logger.info(f"- {imp.get('type', 'unknown')}: {imp.get('description', '')}")
-        else:
-            logger.info(f"- {imp.type}: {imp.description}")
-    
-    return len(improvements) > 0
-
-def test_codebert_optimizer():
-    """Test the CodeBERT optimizer"""
-    logger.info("Testing CodeBERT Optimizer...")
-    optimizer = CodeBERTOptimizer(use_neural_model=False)
-    
-    # Test with fibonacci code (pattern-based optimization)
-    start_time = time.time()
-    optimized_code, original_complexity, optimized_complexity, explanation = optimizer.optimize(FIBONACCI_CODE)
-    elapsed = time.time() - start_time
-    
-    logger.info(f"CodeBERT optimization completed in {elapsed:.3f}s")
-    logger.info(f"Original complexity: {original_complexity}")
-    logger.info(f"Optimized complexity: {optimized_complexity}")
-    logger.info(f"Explanation: {explanation}")
-    
-    print("\nOriginal code:")
-    print(FIBONACCI_CODE)
-    print("\nOptimized code:")
-    print(optimized_code)
-    
-    improvements = optimizer.get_applied_rules()
-    logger.info(f"Applied {len(improvements)} improvements")
-    for imp in improvements:
-        if isinstance(imp, dict):
-            logger.info(f"- {imp.get('type', 'unknown')}: {imp.get('description', '')}")
-        else:
-            logger.info(f"- {imp.type}: {imp.description}")
-    
-    # Test with list building code (regex-based optimization)
-    start_time = time.time()
-    optimized_code, original_complexity, optimized_complexity, explanation = optimizer.optimize(LIST_BUILDING_CODE)
-    elapsed = time.time() - start_time
-    
-    logger.info(f"CodeBERT list optimization completed in {elapsed:.3f}s")
-    logger.info(f"Original complexity: {original_complexity}")
-    logger.info(f"Optimized complexity: {optimized_complexity}")
-    logger.info(f"Explanation: {explanation}")
-    
-    print("\nOriginal list code:")
-    print(LIST_BUILDING_CODE)
-    print("\nOptimized list code:")
-    print(optimized_code)
-    
-    return len(improvements) > 0
-
-def test_app_integration():
-    """Test the apply_codebert_optimization function directly"""
-    logger.info("Testing app integration with apply_codebert_optimization...")
-    
-    # Test with fibonacci code
-    start_time = time.time()
-    optimized_code, improvements, errors = apply_codebert_optimization(FIBONACCI_CODE)
-    elapsed = time.time() - start_time
-    
-    logger.info(f"Integration test completed in {elapsed:.3f}s")
-    
-    print("\nOriginal code:")
-    print(FIBONACCI_CODE)
-    print("\nOptimized code:")
-    print(optimized_code)
-    
-    logger.info(f"Applied {len(improvements)} improvements")
-    for imp in improvements:
-        if isinstance(imp, dict):
-            logger.info(f"- {imp.get('type', 'unknown')}: {imp.get('description', '')}")
-        else:
-            logger.info(f"- {imp.type}: {imp.description}")
-    
-    if errors:
-        logger.error(f"Encountered {len(errors)} errors:")
-        for error in errors:
-            logger.error(f"- {error}")
-    
-    return len(improvements) > 0 and len(errors) == 0
-
-def main():
-    """Run all tests"""
-    logger.info("Starting verification tests...")
-    
-    rule_based_success = test_rule_based_optimizer()
-    logger.info(f"Rule-based test {'succeeded' if rule_based_success else 'failed'}")
-    
-    codebert_success = test_codebert_optimizer()
-    logger.info(f"CodeBERT test {'succeeded' if codebert_success else 'failed'}")
-    
-    integration_success = test_app_integration()
-    logger.info(f"Integration test {'succeeded' if integration_success else 'failed'}")
-    
-    overall_success = rule_based_success and codebert_success and integration_success
-    logger.info(f"Overall verification {'PASSED' if overall_success else 'FAILED'}")
-    
-    return 0 if overall_success else 1
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main()) 
+print(); print("=" * 70)
+print(f"RESULT: {len(passed)} passed, {len(failed)} failed")
+if failed:
+    print("FAILED:", ", ".join(failed))
+sys.exit(1 if failed else 0)

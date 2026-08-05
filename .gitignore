@@ -130,3 +130,4 @@ logs/
 node_modules/venv/Lib/site-packages/torch/lib/dnnl.lib
 venv/Lib/site-packages/torch/lib/torch_cpu.dll
 venv/Lib/site-packages/torch/lib/dnnl.lib
+frontend/node_modules/

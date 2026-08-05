@@ -1,0 +1,26 @@
+# Render blueprint for the ACRR backend.
+#   render.com -> New -> Blueprint -> point at this repo
+services:
+  - type: web
+    name: acrr-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # --preload trains the complexity model once, in the parent process,
+    # before workers fork. Without it every worker retrains on its first
+    # request, and on the free tier that request is already paying for the
+    # container to wake from sleep.
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60 --preload app.main:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+      - key: DEBUG
+        value: "false"
+      # Set this to the deployed frontend origin once Vercel gives you a URL.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Set in the Render dashboard, never in the repo.
+      - key: GEMINI_API_KEY
+        sync: false
