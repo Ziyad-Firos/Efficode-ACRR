@@ -10,7 +10,7 @@
 
 | Area | State | Remaining |
 |---|---|---|
-| Complexity engine (ML) | **Working, audited** | Thin classes: `O(n³+)` has 9 algorithms, `O(n log n)` has 13 |
+| Complexity engine (ML) | **Working, audited** | Nothing blocking — thin classes expanded (see below) |
 | Refactor engine | **Working, tested** | Nothing blocking |
 | Review engine | **Working, tested** | Big-O prediction does not feed the quality grade |
 | Frontend | **Working, verified in browser** | Cosmetic only |
@@ -25,12 +25,13 @@ deployment — not code. Every engine works and is tested.
 
 ### Measured accuracy (quote the first number)
 
-- **Nested grouped cross-validation: 96.8%** — the honest figure
+- **Nested grouped cross-validation: 97.8%** — the honest figure (was 96.8%
+  before step 5's corpus expansion; tuning optimism is now +0.0 pts)
 - 8/8 on genuinely unseen patterns
 - 23/23 on the held-out benchmark — **83% contaminated, do not quote this**
 - 100% stratified CV — **meaningless, variants leak across folds**
-- 132 independent algorithms (660 samples after augmentation — quote 132)
-- Model is *under*-confident: mean confidence 86% vs 96% actual accuracy
+- 148 independent algorithms (740 samples after augmentation — quote 148)
+- Model is *under*-confident: mean confidence 85% vs 98% actual accuracy
 
 ---
 
@@ -92,19 +93,23 @@ python verify_changes.py          # 23 end-to-end checks
 `app.ml.audit` is the one that matters. It attacks the numbers rather than
 producing them, and it has already caught a mislabelled benchmark case.
 
-### 5. Expand the two thin complexity classes
+### 5. ~~Expand the two thin complexity classes~~ — done
 
-`O(n³+)` has 9 independent algorithms and `O(n log n)` has 13. Both are the
-weakest cells in the confusion matrix. Add 8–10 real algorithms to each in
-`app/ml/corpus.py` — **as Python source, never as hand-typed feature vectors**
-— then:
+Added 8 real algorithms to `O(n³+)` (Gaussian elimination, triangle counting,
+Gram matrix, brute-force longest common substring, matrix chain DP,
+brute-force max subarray sum, an all-`while` triple nest, plus one more) and
+8 to `O(n log n)` (count inversions, heap sort, k-smallest/top-k-frequent via
+heap, k-way merge, interval scheduling, rank queries, closest-pair-after-sort)
+in `app/ml/corpus.py`, as Python source per the rule below. `O(n³+)` went
+9 → 17 independent algorithms, `O(n log n)` 13 → 21.
 
-```bash
-python -m app.ml.evaluate
-python -m app.ml.audit
-```
+Contradictory-vector check (same features, different label) came back **0**
+across all 376 distinct feature vectors in the expanded corpus. Nested CV
+rose 96.8% → **97.8%**, `O(n log n)` recall rose 85% → 96%, tuning optimism
+dropped to +0.0 pts. `pytest` (71 passed) and `verify_changes.py` (23/23)
+still pass. README and the numbers above are updated to match.
 
-Two rules when doing this:
+Rules that were followed when doing this:
 
 - After adding samples, check for contradictory vectors (same features,
   different label). Zero is the target. A nonzero count names a missing

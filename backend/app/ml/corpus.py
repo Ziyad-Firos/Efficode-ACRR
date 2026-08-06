@@ -1006,6 +1006,106 @@ _BASE: List[Tuple[str, int]] = [
         return merged
     """, ONLOGN),
 
+    ("""
+    def count_inversions(nums):
+        if len(nums) <= 1:
+            return nums, 0
+        mid = len(nums) // 2
+        left, left_inv = count_inversions(nums[:mid])
+        right, right_inv = count_inversions(nums[mid:])
+        merged = []
+        i = 0
+        j = 0
+        inversions = left_inv + right_inv
+        while i < len(left) and j < len(right):
+            if left[i] <= right[j]:
+                merged.append(left[i])
+                i = i + 1
+            else:
+                merged.append(right[j])
+                j = j + 1
+                inversions = inversions + (len(left) - i)
+        merged.extend(left[i:])
+        merged.extend(right[j:])
+        return merged, inversions
+    """, ONLOGN),
+
+    ("""
+    def heap_sort(nums):
+        import heapq
+        heap = list(nums)
+        heapq.heapify(heap)
+        ordered = []
+        while heap:
+            ordered.append(heapq.heappop(heap))
+        return ordered
+    """, ONLOGN),
+
+    ("""
+    def k_smallest(nums, k):
+        import heapq
+        return heapq.nsmallest(k, nums)
+    """, ONLOGN),
+
+    ("""
+    def top_k_frequent(items, k):
+        import heapq
+        counts = {}
+        for item in items:
+            counts[item] = counts.get(item, 0) + 1
+        return heapq.nlargest(k, counts, key=counts.get)
+    """, ONLOGN),
+
+    ("""
+    def merge_k_sorted_lists(lists):
+        import heapq
+        heap = []
+        for i, lst in enumerate(lists):
+            if lst:
+                heapq.heappush(heap, (lst[0], i, 0))
+        merged = []
+        while heap:
+            val, i, j = heapq.heappop(heap)
+            merged.append(val)
+            if j + 1 < len(lists[i]):
+                heapq.heappush(heap, (lists[i][j + 1], i, j + 1))
+        return merged
+    """, ONLOGN),
+
+    ("""
+    def schedule_max_meetings(intervals):
+        intervals = sorted(intervals, key=lambda pair: pair[1])
+        count = 0
+        last_end = float('-inf')
+        for start, end in intervals:
+            if start >= last_end:
+                count = count + 1
+                last_end = end
+        return count
+    """, ONLOGN),
+
+    ("""
+    def rank_queries(nums, queries):
+        import bisect
+        ordered = sorted(nums)
+        ranks = []
+        for q in queries:
+            idx = bisect.bisect_left(ordered, q)
+            ranks.append(idx)
+        return ranks
+    """, ONLOGN),
+
+    ("""
+    def closest_pair_gap(points):
+        points = sorted(points)
+        best = float('inf')
+        for i in range(len(points) - 1):
+            gap = points[i + 1] - points[i]
+            if gap < best:
+                best = gap
+        return best
+    """, ONLOGN),
+
     # ── O(n²) — matrices and string pair work ────────────────────────────
     ("""
     def rotate_matrix(matrix, n):
@@ -1076,6 +1176,104 @@ _BASE: List[Tuple[str, int]] = [
                     if cost > best:
                         best = cost
         return best
+    """, ON3),
+
+    ("""
+    def gaussian_eliminate(matrix, n):
+        for pivot in range(n):
+            for row in range(pivot + 1, n):
+                factor = matrix[row][pivot] / matrix[pivot][pivot]
+                for col in range(pivot, n):
+                    matrix[row][col] = matrix[row][col] - factor * matrix[pivot][col]
+        return matrix
+    """, ON3),
+
+    ("""
+    def count_triangles(adj, n):
+        triangles = 0
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    if adj[i][j] and adj[j][k] and adj[k][i]:
+                        triangles = triangles + 1
+        return triangles
+    """, ON3),
+
+    ("""
+    def common_triplets(list_a, list_b, list_c):
+        common = []
+        for x in list_a:
+            for y in list_b:
+                for z in list_c:
+                    if x == y == z:
+                        common.append((x, y, z))
+        return common
+    """, ON3),
+
+    ("""
+    def gram_matrix(matrix, n):
+        result = [[0] * n for _ in range(n)]
+        for i in range(n):
+            for j in range(n):
+                result[i][j] = sum(matrix[i][k] * matrix[j][k] for k in range(n))
+        return result
+    """, ON3),
+
+    ("""
+    def longest_common_substring_bruteforce(a, b):
+        best = ''
+        for i in range(len(a)):
+            for j in range(len(b)):
+                k = 0
+                while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
+                    k = k + 1
+                if k > len(best):
+                    best = a[i:i + k]
+        return best
+    """, ON3),
+
+    ("""
+    def matrix_chain_order(dims, n):
+        dp = [[0] * n for _ in range(n)]
+        for length in range(2, n):
+            for i in range(n - length):
+                j = i + length
+                dp[i][j] = None
+                for k in range(i + 1, j):
+                    cost = dp[i][k] + dp[k][j] + dims[i] * dims[k] * dims[j]
+                    if dp[i][j] is None or cost < dp[i][j]:
+                        dp[i][j] = cost
+        return dp
+    """, ON3),
+
+    ("""
+    def max_subarray_sum_bruteforce(nums):
+        n = len(nums)
+        best = nums[0]
+        for start in range(n):
+            for end in range(start, n):
+                total = 0
+                for k in range(start, end + 1):
+                    total = total + nums[k]
+                if total > best:
+                    best = total
+        return best
+    """, ON3),
+
+    ("""
+    def while_triple_nested(n):
+        total = 0
+        i = 0
+        while i < n:
+            j = 0
+            while j < n:
+                k = 0
+                while k < n:
+                    total = total + 1
+                    k = k + 1
+                j = j + 1
+            i = i + 1
+        return total
     """, ON3),
 
     # ── O(2^n) ────────────────────────────────────────────────────────────

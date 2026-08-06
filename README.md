@@ -59,14 +59,14 @@ metrics for this model are misleading, and they are labelled as such.
 
 | Metric | Result | Trust it? |
 |---|---|---|
-| **Nested grouped cross-validation** | **96.8%** | **Yes — this is the number to quote** |
+| **Nested grouped cross-validation** | **97.8%** | **Yes — this is the number to quote** |
 | Accuracy on genuinely unseen patterns | 8/8 | Yes, but the sample is small |
-| Grouped 5-fold cross-validation | 96.2% | Mostly — tuned and evaluated on the same folds |
+| Grouped 5-fold cross-validation | 97.8% | Mostly — tuned and evaluated on the same folds |
 | Held-out benchmark | 23/23 | **No — 83% contaminated, see below** |
 | Stratified 5-fold cross-validation | 100.0% | **No — variants leak across folds** |
 
-Training data: **132 independent algorithms**, expanded to 660 samples by
-augmentation. Quote 132. The extra samples are structural no-ops — renamed
+Training data: **148 independent algorithms**, expanded to 740 samples by
+augmentation. Quote 148. The extra samples are structural no-ops — renamed
 identifiers, added statements, added branches — that teach the model which
 features to ignore. They are not new evidence about complexity.
 
@@ -93,7 +93,8 @@ not a generalisation estimate, and is kept for that purpose.
 **Tuning and evaluating on the same folds inflates the score.** `n_estimators`
 was chosen by maximising grouped CV, which was then reported as a result.
 Nested cross-validation re-selects hyperparameters inside each fold, so the
-test data never influences the choice. That is the 96.8% figure.
+test data never influences the choice. That is the 97.8% figure — with the
+expanded corpus below, tuning optimism has dropped to +0.0 pts.
 
 ### Per-class breakdown (grouped CV)
 
@@ -102,20 +103,23 @@ test data never influences the choice. That is the 96.8% figure.
        O(1)      60     .     .     .     .     .     .     100%
    O(log n)       .    55     5     .     .     .     .      92%
        O(n)       .     .   230     .     .     .     .     100%
- O(n log n)       .     .     .    55     5     .     5      85%
-      O(n²)       .     .    10     .   125     .     .      93%
-     O(n³+)       .     .     .     .     .    45     .     100%
+ O(n log n)       .     .     .   101     4     .     .      96%
+      O(n²)       .     .     7     .   128     .     .      95%
+     O(n³+)       .     .     .     .     .    85     .     100%
      O(2^n)       .     .     .     .     .     .    65     100%
              (rows = actual, columns = predicted)
 ```
 
-`O(n log n)` is the weakest class and also the thinnest — 13 independent
-algorithms. `O(n³+)` has only 9. Both are candidates for corpus expansion.
+`O(n log n)` and `O(n³+)` were the weakest and thinnest classes (13 and 9
+independent algorithms). Both were expanded with real algorithms — heap-based
+selection, k-way merges, interval scheduling, Gaussian elimination, brute-force
+subarray/substring search, and more — bringing them to 21 and 17 independent
+algorithms respectively. `O(n log n)` recall rose from 85% to 96%.
 
 ### Calibration
 
 When the model reports 95% confidence, it is right 100% of the time; at 50–70%
-confidence it is right 86% of the time. Mean confidence 86% against 96% actual
+confidence it is right 94% of the time. Mean confidence 85% against 98% actual
 accuracy — the model is **under-confident**, which is the safe direction. A
 low confidence figure is a real signal that the code is unusual, not noise.
 
@@ -137,15 +141,15 @@ alongside for contrast.
 ### Which features carry the signal
 
 ```
-max_loop_depth              0.158
-has_sorting_call            0.140
-loop_count                  0.129
-nested_loop_count           0.119
-while_loop_halves           0.115
-max_self_calls_per_path     0.114
-has_recursion               0.057
+max_loop_depth              0.146
+has_sorting_call            0.126
+while_loop_halves           0.114
+loop_count                  0.112
+nested_loop_count           0.093
+max_self_calls_per_path     0.084
+has_recursion               0.067
 ...
-share taken by known-irrelevant features: 7.7%
+share taken by known-irrelevant features: 8.1%
 ```
 
 That last line checks the corpus design. `branch_count`, `has_subscript` and
@@ -316,9 +320,9 @@ That test found three real bugs on its first run.
 Stated plainly, because a tool that overstates its confidence is worse than
 one that admits its edges:
 
-- **The training corpus is small.** 132 algorithms, hand-labelled by one
-  person. `O(n³+)` has 9 examples and `O(n log n)` has 13. Expect worse
-  behaviour on classes that thin.
+- **The training corpus is small.** 148 algorithms, hand-labelled by one
+  person. `O(n³+)` has 17 examples and `O(n log n)` has 21 — thin classes,
+  though better than before. Expect worse behaviour on classes that thin.
 - **Labels encode one opinion.** Quicksort is labelled `O(n log n)`, not its
   `O(n²)` worst case. BFS is labelled `O(n)` though it is really `O(V+E)`.
   `n` is not even consistently defined — for `gcd` it is the magnitude of a
