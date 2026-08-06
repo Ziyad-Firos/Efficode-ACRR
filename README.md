@@ -18,17 +18,27 @@ would most improve it.
 
 ```
 Time complexity        O(n²)
-Confidence             96%
+Confidence             99%
 
 Why
+  • 'find_duplicates' is the slowest of 2 functions and sets the overall complexity.
   • two nested loops — each element is compared against every other
   • a linear scan inside a loop (`in` against a list) — this is a hidden quadratic
+
+Per function
+  find_duplicates    line 1    O(n²)   99%   slowest
+  calculate_stats    line 10   O(n)    92%
 
 How to make it faster
   Convert the list being searched into a set before the loop. Membership
   testing drops from O(n) to O(1), taking the whole function from
   quadratic to linear.
 ```
+
+Each function is predicted on its own and the slowest one sets the headline.
+That matters more than it sounds: analysing the file above as a single unit
+blends a quadratic function with a linear one and returns a hedged answer at
+52% confidence. Split apart, the same two functions come back at 99% and 92%.
 
 **Reviews.** flake8 (style), radon (cyclomatic complexity), bandit
 (security), plus custom AST checks for code smells. Produces a weighted A–F
@@ -44,60 +54,99 @@ to rules-only when it is unavailable.
 
 ## Measured accuracy
 
-| Metric | Result |
-|---|---|
-| Grouped 5-fold cross-validation | **98.1%** |
-| Held-out benchmark (22 DSA functions) | **22/22** |
-| Stratified 5-fold cross-validation | 100.0% |
-| Training corpus | 530 samples from 106 base algorithms |
+Read this section before quoting any number from it. Several obvious-looking
+metrics for this model are misleading, and they are labelled as such.
 
-**Read the grouped number, not the stratified one.** The corpus expands each
-base algorithm into structural variants — renamed identifiers, extra
-statements, extra branches — so that the model learns to ignore things that
-do not affect complexity. Under a plain stratified split, variants of the
-same algorithm land in both the train and test folds, and the model scores
-100% by recognising near-copies. Grouped cross-validation forces every
-variant of an algorithm into the same fold, so the test set contains only
-algorithms the model has never seen. That is the number worth quoting.
+| Metric | Result | Trust it? |
+|---|---|---|
+| **Nested grouped cross-validation** | **96.8%** | **Yes — this is the number to quote** |
+| Accuracy on genuinely unseen patterns | 8/8 | Yes, but the sample is small |
+| Grouped 5-fold cross-validation | 96.2% | Mostly — tuned and evaluated on the same folds |
+| Held-out benchmark | 23/23 | **No — 83% contaminated, see below** |
+| Stratified 5-fold cross-validation | 100.0% | **No — variants leak across folds** |
 
-The held-out benchmark in `app/ml/benchmark.py` is a third check: 22
-functions written independently and deliberately kept out of the corpus.
+Training data: **132 independent algorithms**, expanded to 660 samples by
+augmentation. Quote 132. The extra samples are structural no-ops — renamed
+identifiers, added statements, added branches — that teach the model which
+features to ignore. They are not new evidence about complexity.
+
+Run `python -m app.ml.audit` to reproduce every claim below.
+
+### Why the flattering numbers are wrong
+
+**The stratified split leaks.** Variants of one algorithm land in both the
+train and test folds, so the model scores 100% by recognising near-copies.
+Grouped cross-validation forces every variant of an algorithm into the same
+fold, so the test set holds only algorithms the model has never seen.
+
+**The benchmark is 83% contaminated.** Of 23 benchmark cases, 19 have a
+feature vector *identical* to a training algorithm — `bubble_sort` in the
+benchmark produces the same 23 numbers as `bubble_sort` in the corpus. Those
+cases cannot fail unless the model is broken. The benchmark is a smoke test,
+not a generalisation estimate, and is kept for that purpose.
+
+**Tuning and evaluating on the same folds inflates the score.** `n_estimators`
+was chosen by maximising grouped CV, which was then reported as a result.
+Nested cross-validation re-selects hyperparameters inside each fold, so the
+test data never influences the choice. That is the 96.8% figure.
 
 ### Per-class breakdown (grouped CV)
 
 ```
                   0     1     2     3     4     5     6
-       O(1)      40     .     .     .     .     .     .     100%
+       O(1)      60     .     .     .     .     .     .     100%
    O(log n)       .    55     5     .     .     .     .      92%
-       O(n)       .     .   170     .     .     .     .     100%
- O(n log n)       .     .     .    64     .     .     1      98%
-      O(n²)       .     .     5     5    85     .     .      89%
+       O(n)       .     .   230     .     .     .     .     100%
+ O(n log n)       .     .     .    55     5     .     5      85%
+      O(n²)       .     .    10     .   125     .     .      93%
      O(n³+)       .     .     .     .     .    45     .     100%
-     O(2^n)       .     .     .     .     .     .    55     100%
+     O(2^n)       .     .     .     .     .     .    65     100%
              (rows = actual, columns = predicted)
 ```
 
-Reproduce with `python -m app.ml.evaluate`.
+`O(n log n)` is the weakest class and also the thinnest — 13 independent
+algorithms. `O(n³+)` has only 9. Both are candidates for corpus expansion.
+
+### Calibration
+
+When the model reports 95% confidence, it is right 100% of the time; at 50–70%
+confidence it is right 86% of the time. Mean confidence 86% against 96% actual
+accuracy — the model is **under-confident**, which is the safe direction. A
+low confidence figure is a real signal that the code is unusual, not noise.
+
+### What the audit checks
+
+`app/ml/audit.py` exists to attack the numbers rather than produce them:
+train/test leakage, effective sample size, hyperparameter selection bias,
+probability calibration, robustness on deliberately unfamiliar code, and a
+list of corpus labels that are genuinely arguable. It was written because
+every one of those is a standard way for an ML result to be quietly wrong.
+
+It has already earned its place: after string-concatenation detection was
+added, the model started disagreeing with a benchmark case labelled `O(n)`.
+The model was right. `out = ch + out` in a loop copies the whole accumulated
+string every iteration and is quadratic — the hand-written ground-truth label
+was wrong. It is now labelled `O(n²)`, with a linear `str.join` version added
+alongside for contrast.
 
 ### Which features carry the signal
 
 ```
-max_loop_depth              0.170
-has_sorting_call            0.139
+max_loop_depth              0.158
+has_sorting_call            0.140
+loop_count                  0.129
 nested_loop_count           0.119
-loop_count                  0.117
-while_loop_halves           0.117
+while_loop_halves           0.115
 max_self_calls_per_path     0.114
 has_recursion               0.057
 ...
-share taken by known-irrelevant features: 7.9%
+share taken by known-irrelevant features: 7.7%
 ```
 
-That last line is the check that the corpus design worked. `branch_count`,
-`has_subscript` and `total_statements` are deliberately kept in the feature
-vector even though they carry no asymptotic signal — the corpus varies them
-while holding the label fixed, so a well-trained forest should learn to
-ignore them. It does.
+That last line checks the corpus design. `branch_count`, `has_subscript` and
+`total_statements` are kept in the vector despite carrying no asymptotic
+signal — the corpus varies them while holding the label fixed, so a
+well-trained forest should learn to ignore them. It does.
 
 ---
 
@@ -140,6 +189,7 @@ its deterministic engines and reports `ai_available: false`.
 cd backend
 python -m pytest tests -q          # unit + behaviour tests
 python -m app.ml.evaluate          # complexity model accuracy
+python -m app.ml.audit             # attack those numbers: leakage, bias, calibration
 python verify_changes.py           # end-to-end API checks
 ```
 
@@ -194,9 +244,15 @@ Returns issues from all four analysers plus an A–F quality score.
      "description": "...", "applied": true}
   ],
   "complexity": {
-    "before": "O(n²)", "after": "O(n²)", "confidence": 0.96,
+    "before": "O(n²)", "after": "O(n²)", "confidence": 0.99,
     "explanation": ["two nested loops — ..."],
-    "suggestion": "Convert the list being searched into a set ..."
+    "suggestion": "Convert the list being searched into a set ...",
+    "functions": [
+      {"name": "find_duplicates", "line": 1, "complexity": "O(n²)",
+       "confidence": 0.99, "explanation": ["..."], "is_dominant": true},
+      {"name": "calculate_stats", "line": 10, "complexity": "O(n)",
+       "confidence": 0.92, "explanation": ["..."], "is_dominant": false}
+    ]
   },
   "ai_suggestions": [],
   "ai_available": false
@@ -236,6 +292,12 @@ which is refused when the accumulator is read inside the loop, when the loop
 variable is used afterwards, or when the target shadows the accumulator —
 each of those produces code that raises `NameError` at runtime.
 
+**Complexity is predicted per function, not per file.** A file is not a
+meaningful unit of asymptotic analysis — its loop structure is the union of
+every function in it. Predicting each function separately and reporting the
+slowest is both more accurate and more useful, since it names which function
+to fix.
+
 **Behaviour is tested by execution, not inspection.**
 `test_refactor_preserves_behaviour` runs the original and the refactored code
 with real inputs and compares results. Structural assertions cannot catch a
@@ -249,10 +311,21 @@ That test found three real bugs on its first run.
 Stated plainly, because a tool that overstates its confidence is worse than
 one that admits its edges:
 
-- Complexity is reported **per module**, not per function. A file with a
-  linear helper and a quadratic main function reports the quadratic.
+- **The training corpus is small.** 132 algorithms, hand-labelled by one
+  person. `O(n³+)` has 9 examples and `O(n log n)` has 13. Expect worse
+  behaviour on classes that thin.
+- **Labels encode one opinion.** Quicksort is labelled `O(n log n)`, not its
+  `O(n²)` worst case. BFS is labelled `O(n)` though it is really `O(V+E)`.
+  `n` is not even consistently defined — for `gcd` it is the magnitude of a
+  number, for sorting it is an element count. The model cannot tell these
+  apart.
+- **No execution, ever.** Complexity is inferred from structure alone. Nothing
+  is measured empirically, so a data-dependent cost the structure does not
+  reveal will be missed.
+
 - **No interprocedural analysis.** If `main()` calls a helper that sorts, the
-  cost of that sort is not propagated into `main`'s complexity.
+  cost of that sort is not propagated into `main`'s complexity. Each function
+  is judged on the structure written inside it.
 - **Amortised costs are not modelled.** Repeated `list.append` is treated as
   O(1) per call, which is the amortised truth but not the worst case.
 - **Input-dependent complexity reports the typical case.** Quicksort is
@@ -288,6 +361,7 @@ backend/
       complexity_predictor.py  RandomForest + explanations
       benchmark.py           22 held-out functions
       evaluate.py            grouped CV, confusion matrix, importances
+      audit.py               leakage, selection bias, calibration, robustness
   tests/
 frontend/
   src/components/            CodeEditor, ReviewPanel, RefactorPanel, ScoreCard

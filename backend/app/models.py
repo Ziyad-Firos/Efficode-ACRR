@@ -110,6 +110,20 @@ class AISuggestion(BaseModel):
     validated: bool = Field(..., description="True if ast.parse passed on the suggested code")
 
 
+class FunctionComplexity(BaseModel):
+    """Big-O for one function, analysed on its own."""
+    name: str = Field(..., description="Function name")
+    line: Optional[int] = Field(None, description="Line where the function is defined")
+    complexity: str = Field(..., description="Predicted Big-O for this function alone")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    explanation: List[str] = Field(default_factory=list)
+    suggestion: Optional[str] = None
+    is_dominant: bool = Field(
+        False,
+        description="True for the function that determines the module's overall complexity",
+    )
+
+
 class ComplexityPrediction(BaseModel):
     before: str = Field(..., description="Predicted Big-O before refactor, e.g. 'O(n²)'")
     after: str = Field(..., description="Predicted Big-O after refactor")
@@ -121,6 +135,15 @@ class ComplexityPrediction(BaseModel):
     suggestion: Optional[str] = Field(
         None,
         description="The single highest-value change that would lower the complexity",
+    )
+    functions: List[FunctionComplexity] = Field(
+        default_factory=list,
+        description=(
+            "Per-function breakdown. Analysing a whole file as one unit blends "
+            "structures that belong to different functions and produces a "
+            "low-confidence average, so each function is predicted separately "
+            "and the worst one drives the overall figure."
+        ),
     )
 
 

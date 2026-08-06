@@ -6,7 +6,7 @@ features at training time and at prediction time. The previous design
 hand-typed training vectors, which meant training data and the extractor
 could silently disagree.
 
-Feature vector (18 features)
+Feature vector (21 features)
 ----------------------------
   0  max_loop_depth              deepest nesting of loops AND comprehensions
   1  loop_count                  total loops (comprehension generators count)
@@ -26,6 +26,13 @@ Feature vector (18 features)
  15  has_visited_guard           set/dict-backed membership guard
  16  comprehension_count         number of comprehensions/genexps
  17  while_loop_halves           while-loop that divides its range
+ 18  sort_inside_loop            a sort executed on every iteration
+ 19  string_concat_in_loop       `s = s + x` where s is a string — quadratic
+ 20  has_mutual_recursion        f calls g, g calls f — recursion with no self-call
+ 21  mutual_recursion_branches   cross-calls per path in that cycle (1 = linear,
+                                 2+ = branching, i.e. exponential)
+ 22  bulk_collection_op          whole-collection work with no visible loop:
+                                 set(a) & set(b), ''.join(x), x[:] — all O(n)
 
 Features 4, 6 and 9 carry little asymptotic signal. They are retained
 deliberately: corpus.py generates variants that vary exactly these values
@@ -50,7 +57,7 @@ from __future__ import annotations
 import ast
 from typing import List, Optional, Set
 
-FEATURE_COUNT = 18
+FEATURE_COUNT = 23
 
 FEATURE_NAMES = [
     "max_loop_depth", "loop_count", "has_recursion", "nested_loop_count",
@@ -58,7 +65,9 @@ FEATURE_NAMES = [
     "function_count", "total_statements", "max_self_calls_per_path",
     "has_memo_guard", "loop_bound_is_quadratic", "recursion_halves_input",
     "linear_scan_in_loop", "has_visited_guard", "comprehension_count",
-    "while_loop_halves",
+    "while_loop_halves", "sort_inside_loop", "string_concat_in_loop",
+    "has_mutual_recursion", "mutual_recursion_branches",
+    "bulk_collection_op",
 ]
 
 _LOOPS = (ast.For, ast.While, ast.AsyncFor)
@@ -152,9 +161,13 @@ def _annotation_is_hashed(annotation: ast.AST) -> bool:
 # ---------------------------------------------------------------------------
 
 def _self_calls_in_expr(node: ast.AST, name: str) -> int:
+    return _calls_in_expr(node, {name})
+
+
+def _calls_in_expr(node: ast.AST, names: Set[str]) -> int:
     return sum(
         1 for n in ast.walk(node)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in names
     )
 
 
@@ -171,6 +184,21 @@ def max_self_calls_per_path(fn: ast.AST, name: Optional[str] = None) -> int:
     """
     name = name or getattr(fn, "name", "")
     if not name:
+        return 0
+    return max_calls_per_path(fn, {name})
+
+
+def max_calls_per_path(fn: ast.AST, names: Set[str]) -> int:
+    """
+    Maximum calls to any of `names` along a single path through fn.
+
+    Same path arithmetic as max_self_calls_per_path — sequential statements
+    add, branches take the maximum, an early return ends the path — but over
+    an arbitrary set of callees. That generalisation is what lets mutual
+    recursion be measured: the cycle members are the target set instead of
+    the function's own name.
+    """
+    if not names:
         return 0
 
     def is_terminal(body: List[ast.stmt]) -> bool:
@@ -199,7 +227,7 @@ def max_self_calls_per_path(fn: ast.AST, name: Optional[str] = None) -> int:
         head, rest = body[0], body[1:]
 
         if isinstance(head, ast.If):
-            test_calls = _self_calls_in_expr(head.test, name)
+            test_calls = _calls_in_expr(head.test, names)
             then_branch = walk_body(head.body)
             else_branch = walk_body(head.orelse)
 
@@ -211,7 +239,7 @@ def max_self_calls_per_path(fn: ast.AST, name: Optional[str] = None) -> int:
             return test_calls + max(then_branch, else_branch) + walk_body(rest)
 
         if isinstance(head, (ast.Return, ast.Raise)):
-            return _self_calls_in_expr(head, name)   # path ends here
+            return _calls_in_expr(head, names)   # path ends here
 
         if isinstance(head, ast.Try):
             return max(walk_body(head.body), walk_body(head.orelse)) + walk_body(rest)
@@ -227,7 +255,7 @@ def max_self_calls_per_path(fn: ast.AST, name: Optional[str] = None) -> int:
         if isinstance(head, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return walk_body(rest)   # nested def is not executed inline
 
-        return _self_calls_in_expr(head, name) + walk_body(rest)
+        return _calls_in_expr(head, names) + walk_body(rest)
 
     return walk_body(list(getattr(fn, "body", [])))
 
@@ -479,6 +507,264 @@ def _while_loop_halves(tree: ast.AST) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Costs the original 18 features could not see
+# ---------------------------------------------------------------------------
+# Each of these was added after an audit case the model got wrong. They are
+# not hypothetical gaps — every one corresponds to a real miss.
+
+_SORT_CALLS = {"sorted"}
+_SORT_METHODS = {"sort"}
+
+
+def _sort_inside_loop(tree: ast.AST) -> bool:
+    """
+    A sort executed once per iteration.
+
+    `has_sorting_call` is only a flag: it fires the same whether the sort runs
+    once or n times. That made `for g in groups: out.append(sorted(g))` look
+    like a single O(n log n) sort instead of the n-sorts it actually is.
+    """
+    found = False
+
+    def contains_sort(node: ast.AST) -> bool:
+        for n in ast.walk(node):
+            if isinstance(n, ast.Call):
+                if isinstance(n.func, ast.Name) and n.func.id in _SORT_CALLS:
+                    return True
+                if isinstance(n.func, ast.Attribute) and n.func.attr in _SORT_METHODS:
+                    return True
+        return False
+
+    def walk(node: ast.AST, in_loop: bool) -> None:
+        nonlocal found
+        if isinstance(node, _LOOPS):
+            header = node.iter if isinstance(node, (ast.For, ast.AsyncFor)) else node.test
+            walk(header, in_loop)                      # header runs outside
+            for child in list(node.body) + list(node.orelse):
+                walk(child, True)
+            return
+        if isinstance(node, _COMPS):
+            for gen in node.generators:
+                walk(gen.iter, in_loop)
+            for part in ("elt", "key", "value"):
+                sub = getattr(node, part, None)
+                if sub is not None:
+                    walk(sub, True)
+            return
+        if in_loop and contains_sort(node):
+            found = True
+        for child in ast.iter_child_nodes(node):
+            walk(child, in_loop)
+
+    walk(tree, False)
+    return found
+
+
+def _string_names(tree: ast.AST) -> Set[str]:
+    """Names that hold a string, inferred from their initialiser."""
+    names: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            value = node.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                names.add(node.targets[0].id)
+            elif isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
+                    and value.func.id == "str":
+                names.add(node.targets[0].id)
+            elif isinstance(value, ast.JoinedStr):
+                names.add(node.targets[0].id)
+        if isinstance(node, ast.arg) and node.annotation is not None:
+            try:
+                if "str" in ast.unparse(node.annotation).lower():
+                    names.add(node.arg)
+            except Exception:  # noqa: BLE001
+                pass
+    return names
+
+
+def _string_concat_in_loop(tree: ast.AST) -> bool:
+    """
+    `out = out + piece` inside a loop, where out is a string.
+
+    Python strings are immutable, so each concatenation copies the whole
+    accumulated string — the loop is quadratic, not linear. The identical
+    shape on a number (`total = total + x`) is genuinely O(1) per step, which
+    is why this checks the inferred type rather than the syntax alone.
+    """
+    strings = _string_names(tree)
+    if not strings:
+        return False
+
+    found = False
+
+    def is_concat(node: ast.AST) -> bool:
+        # out = out + piece
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name in strings and isinstance(node.value, ast.BinOp) \
+                    and isinstance(node.value.op, ast.Add):
+                operands = {n.id for n in ast.walk(node.value)
+                            if isinstance(n, ast.Name)}
+                return name in operands
+        # out += piece
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) \
+                and isinstance(node.op, ast.Add):
+            return node.target.id in strings
+        return False
+
+    def walk(node: ast.AST, in_loop: bool) -> None:
+        nonlocal found
+        for child in ast.iter_child_nodes(node):
+            child_in_loop = in_loop or isinstance(child, _LOOPS + _COMPS)
+            if in_loop and is_concat(child):
+                found = True
+            walk(child, child_in_loop)
+
+    walk(tree, False)
+    return found
+
+
+def _has_mutual_recursion(tree: ast.AST) -> bool:
+    """
+    A cycle in the call graph that is not a self-call.
+
+    `is_even(n)` calling `is_odd(n-1)` calling `is_even(n-2)` is recursion,
+    but no function calls itself, so every self-call feature reads zero and
+    the code looks like straight-line work.
+    """
+    graph: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            graph[node.name] = {
+                n.func.id for n in ast.walk(node)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+    if len(graph) < 2:
+        return False
+
+    # depth-first search for a cycle spanning at least two functions
+    WHITE, GREY, BLACK = 0, 1, 2
+    colour = {name: WHITE for name in graph}
+
+    def visit(name: str, depth: int) -> bool:
+        colour[name] = GREY
+        for callee in graph.get(name, ()):
+            if callee not in graph or callee == name:
+                continue                      # unknown call, or plain self-recursion
+            if colour[callee] == GREY:
+                return True                   # back edge across two functions
+            if colour[callee] == WHITE and visit(callee, depth + 1):
+                return True
+        colour[name] = BLACK
+        return False
+
+    return bool(_mutual_recursion_cycle(tree))
+
+
+def _mutual_recursion_cycle(tree: ast.AST) -> Set[str]:
+    """Names of functions taking part in a non-self recursive cycle."""
+    graph: dict = {}
+    nodes: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            nodes[node.name] = node
+            graph[node.name] = {
+                n.func.id for n in ast.walk(node)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+    if len(graph) < 2:
+        return set()
+
+    members: Set[str] = set()
+    for start in graph:
+        # is `start` reachable from itself through at least one other function?
+        stack = [(callee, 1) for callee in graph[start] if callee in graph and callee != start]
+        seen = set()
+        while stack:
+            current, depth = stack.pop()
+            if current == start and depth >= 1:
+                members.add(start)
+                break
+            if current in seen:
+                continue
+            seen.add(current)
+            for callee in graph.get(current, ()):
+                if callee in graph:
+                    stack.append((callee, depth + 1))
+    return members
+
+
+def _mutual_recursion_branches(tree: ast.AST) -> int:
+    """
+    Cross-calls per path inside a mutual-recursion cycle.
+
+    1  -> linear (is_even calls is_odd once, which calls is_even once)
+    2+ -> branching, so the call tree doubles at each level: exponential
+
+    Without this, both shapes carry the same has_mutual_recursion flag and
+    are indistinguishable — which produced contradictory training samples
+    labelled O(n) and O(2^n) with identical feature vectors.
+    """
+    cycle = _mutual_recursion_cycle(tree)
+    if not cycle:
+        return 0
+
+    worst = 0
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in cycle:
+            targets = cycle - {node.name}
+            worst = max(worst, max_calls_per_path(node, targets))
+    return worst
+
+
+# Builtins and methods that touch every element of a collection. None of
+# them is a loop in the AST, but all of them cost O(n) — which is why
+# `set(a).intersection(set(b))` and `'-'.join(words)` were both predicted
+# O(1): the extractor could see no loop, no recursion, and nothing else.
+_BULK_BUILTINS = {
+    "sum", "min", "max", "any", "all", "list", "tuple",
+    "set", "frozenset", "reversed",
+}
+_BULK_METHODS = {
+    "join", "copy", "extend", "intersection", "union", "difference",
+    "symmetric_difference", "issubset", "issuperset", "count", "index",
+    "remove", "split", "splitlines", "strip", "replace",
+}
+# Excluded because they are O(1): len, append, pop, add, get, keys,
+# values, items (lazy views), enumerate/zip/range (lazy).
+#
+# sorted() and .sort() are also excluded — deliberately. They already have
+# their own feature (has_sorting_call), and listing them here too made
+# `bulk_collection_op` ambiguous between linear and n-log-n work: nine
+# O(n log n) samples started reading as O(n). Keeping this feature to mean
+# strictly LINEAR bulk work restores the separation.
+
+
+def _bulk_collection_op(tree: ast.AST) -> bool:
+    """
+    A whole-collection operation somewhere in the code.
+
+    Only meaningful in combination with the loop features: at depth 0 it
+    signals linear work that has no loop to reveal it; inside a loop the
+    cost is already captured by `linear_scan_in_loop`.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in _BULK_METHODS:
+                return True
+            if isinstance(node.func, ast.Name) and node.func.id in _BULK_BUILTINS:
+                # min(a, b) on two scalars is O(1); min(values) is O(n).
+                if len(node.args) == 1:
+                    return True
+        # a full slice copies the sequence
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -575,4 +861,9 @@ def extract_features_from_tree(tree: ast.AST) -> List[int]:
         int(_has_visited_guard(tree, hashed)),          # 15
         comprehension_count,                            # 16
         int(_while_loop_halves(tree)),                  # 17
+        int(_sort_inside_loop(tree)),                   # 18
+        int(_string_concat_in_loop(tree)),              # 19
+        int(_has_mutual_recursion(tree)),               # 20
+        _mutual_recursion_branches(tree),               # 21
+        int(_bulk_collection_op(tree)),                 # 22
     ]

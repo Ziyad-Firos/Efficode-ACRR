@@ -196,23 +196,35 @@ function ComplexityReport({ complexity }) {
 
   return (
     <div className={styles.complexityReport}>
+      {/* Both sides are always shown, even when identical — seeing that the
+          complexity did NOT change is as informative as seeing that it did. */}
       <div className={styles.bigORow}>
         <div className={styles.bigOBlock}>
-          <span className={styles.bigOLabel}>Time complexity</span>
+          <span className={styles.bigOLabel}>Your code</span>
           <span className={styles.bigOValue}>{complexity.before}</span>
         </div>
-        {improved && (
-          <>
-            <span className={styles.bigOArrow}>→</span>
-            <div className={styles.bigOBlock}>
-              <span className={styles.bigOLabel}>After refactor</span>
-              <span className={`${styles.bigOValue} ${styles.bigOImproved}`}>
-                {complexity.after}
-              </span>
-            </div>
-          </>
-        )}
+
+        <span className={styles.bigOArrow}>→</span>
+
+        <div className={styles.bigOBlock}>
+          <span className={styles.bigOLabel}>After refactor</span>
+          <span className={`${styles.bigOValue} ${improved ? styles.bigOImproved : styles.bigOSame}`}>
+            {complexity.after}
+          </span>
+        </div>
+
+        {improved
+          ? <span className={styles.deltaImproved}>↓ improved</span>
+          : <span className={styles.deltaSame}>unchanged</span>}
       </div>
+
+      {!improved && (
+        <p className={styles.unchangedNote}>
+          The refactor tidied the code without changing how it scales. Rule-based
+          transforms remove redundancy — they do not redesign the algorithm. Use
+          the suggestion below for that.
+        </p>
+      )}
 
       <div className={`${styles.confRow} ${styles['conf_' + confLevel]}`}>
         <div className={styles.confBarTrack}>
@@ -229,6 +241,41 @@ function ComplexityReport({ complexity }) {
               <li key={i} className={styles.reasonItem}>{line}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {complexity.functions?.length > 1 && (
+        <div className={styles.perFunctionBlock}>
+          <h4 className={styles.reasonTitle}>Per function</h4>
+          <div className={styles.functionList}>
+            {complexity.functions.map((fn, i) => (
+              <div
+                key={i}
+                className={`${styles.functionRow} ${fn.is_dominant ? styles.functionDominant : ''}`}
+              >
+                <div className={styles.functionHead}>
+                  <span className={styles.functionName}>{fn.name}</span>
+                  {fn.line != null && (
+                    <span className={styles.lineNum}>Line {fn.line}</span>
+                  )}
+                  <span className={styles.functionBigO}>{fn.complexity}</span>
+                  <span className={styles.functionConf}>
+                    {Math.round(fn.confidence * 100)}%
+                  </span>
+                  {fn.is_dominant && (
+                    <span className={styles.dominantBadge}>slowest</span>
+                  )}
+                </div>
+                {fn.explanation?.length > 0 && (
+                  <ul className={styles.functionReasons}>
+                    {fn.explanation.map((line, j) => (
+                      <li key={j} className={styles.functionReason}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

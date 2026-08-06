@@ -173,3 +173,119 @@
   border-left: 2px solid rgba(255, 209, 102, 0.4);
   padding-left: 10px;
 }
+
+/* ── Per-function complexity breakdown ─────────────────────────────────── */
+/* A file with one quadratic and one linear function used to report a blended
+   average at ~57% confidence. Each function is now predicted separately and
+   listed here, with the slowest one driving the headline figure. */
+
+.perFunctionBlock {
+  border-left: 3px solid #2a2f3d;
+  padding-left: 14px;
+}
+
+.functionList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.functionRow {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #14171f;
+  border: 1px solid #232733;
+}
+
+.functionDominant {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.04);
+}
+
+.functionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.functionName {
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.functionBigO {
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  color: #74b9ff;
+  margin-left: auto;
+}
+
+.functionConf {
+  font-size: 11px;
+  color: #8892b0;
+  min-width: 34px;
+  text-align: right;
+}
+
+.dominantBadge {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.functionReasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.functionReason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8892b0;
+}
+
+/* ── Before / after complexity ─────────────────────────────────────────── */
+
+.bigOSame {
+  color: #8892b0;
+}
+
+.deltaImproved,
+.deltaSame {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  align-self: flex-end;
+  margin-bottom: 6px;
+}
+
+.deltaImproved {
+  color: #55efc4;
+  background: rgba(85, 239, 196, 0.12);
+}
+
+.deltaSame {
+  color: #8892b0;
+  background: rgba(136, 146, 176, 0.12);
+}
+
+.unchangedNote {
+  margin: -10px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8892b0;
+}

@@ -1109,6 +1109,210 @@ _BASE: List[Tuple[str, int]] = [
         delete_cost = edit_distance_naive(a, b, i + 1, j)
         return 1 + min(insert_cost, delete_cost)
     """, OEXP),
+    # ─────────────────────────────────────────────────────────────────────
+    # Expansion round 3 — patterns the audit caught the model getting wrong
+    # ─────────────────────────────────────────────────────────────────────
+
+    # ── String concatenation in a loop is QUADRATIC ──────────────────────
+    # Strings are immutable, so `out = out + piece` copies everything
+    # accumulated so far on every iteration. Looks linear, is not.
+    ("""
+    def join_parts(parts):
+        out = ''
+        for p in parts:
+            out = out + p
+        return out
+    """, ON2),
+
+    ("""
+    def build_csv_row(values):
+        line = ''
+        for v in values:
+            line += str(v) + ','
+        return line
+    """, ON2),
+
+    ("""
+    def reverse_string_slow(text):
+        out = ''
+        for ch in text:
+            out = ch + out
+        return out
+    """, ON2),
+
+    ("""
+    def repeat_label(word, times):
+        banner = ''
+        for i in range(times):
+            banner = banner + word
+        return banner
+    """, ON2),
+
+    # The same SHAPE on a number is genuinely linear — this pair is what
+    # teaches the model to use the inferred type, not the syntax.
+    ("""
+    def sum_values(nums):
+        running = 0
+        for x in nums:
+            running = running + x
+        return running
+    """, ON),
+
+    ("""
+    def accumulate_counts(nums):
+        tally = 0
+        for x in nums:
+            tally += x
+        return tally
+    """, ON),
+
+    # ── A sort INSIDE a loop runs n times ────────────────────────────────
+    ("""
+    def sort_each_group(groups):
+        out = []
+        for group in groups:
+            out.append(sorted(group))
+        return out
+    """, ON2),
+
+    ("""
+    def normalise_rows(rows):
+        result = []
+        for row in rows:
+            row.sort()
+            result.append(row)
+        return result
+    """, ON2),
+
+    ("""
+    def rank_within_buckets(buckets):
+        ranked = {}
+        for key in buckets:
+            ranked[key] = sorted(buckets[key])
+        return ranked
+    """, ON2),
+
+    ("""
+    def best_of_each(groups):
+        winners = []
+        for group in groups:
+            ordered = sorted(group)
+            winners.append(ordered[0])
+        return winners
+    """, ON2),
+
+    # ── Mutual recursion — recursion with no self-call ───────────────────
+    ("""
+    def is_even_number(n):
+        if n == 0:
+            return True
+        return is_odd_number(n - 1)
+
+    def is_odd_number(n):
+        if n == 0:
+            return False
+        return is_even_number(n - 1)
+    """, ON),
+
+    ("""
+    def walk_down(n):
+        if n <= 0:
+            return 0
+        return 1 + walk_up(n - 1)
+
+    def walk_up(n):
+        if n <= 0:
+            return 0
+        return 1 + walk_down(n - 1)
+    """, ON),
+
+    ("""
+    def branch_a(n):
+        if n <= 1:
+            return 1
+        return branch_b(n - 1) + branch_b(n - 2)
+
+    def branch_b(n):
+        if n <= 1:
+            return 1
+        return branch_a(n - 1) + branch_a(n - 2)
+    """, OEXP),
+
+    ("""
+    def expand_left(n):
+        if n <= 0:
+            return 1
+        return expand_right(n - 1) + expand_right(n - 1)
+
+    def expand_right(n):
+        if n <= 0:
+            return 1
+        return expand_left(n - 1) + expand_left(n - 1)
+    """, OEXP),
+    # ── Whole-collection work with no visible loop is still O(n) ─────────
+    ("""
+    def shared_items(first, second):
+        return set(first).intersection(set(second))
+    """, ON),
+
+    ("""
+    def merge_tags(a, b):
+        return set(a).union(set(b))
+    """, ON),
+
+    ("""
+    def join_with_commas(words):
+        return ','.join(words)
+    """, ON),
+
+    ("""
+    def as_sentence(words):
+        return ' '.join(words) + '.'
+    """, ON),
+
+    ("""
+    def copy_and_extend(base, extra):
+        result = list(base)
+        result.extend(extra)
+        return result
+    """, ON),
+
+    ("""
+    def largest_value(values):
+        return max(values)
+    """, ON),
+
+    ("""
+    def unique_count(values):
+        return len(set(values))
+    """, ON),
+
+    ("""
+    def tail_slice(values):
+        return values[1:]
+    """, ON),
+
+    # Controls: genuinely O(1) despite touching a collection
+    ("""
+    def size_of(values):
+        return len(values)
+    """, O1),
+
+    ("""
+    def push_item(stack, value):
+        stack.append(value)
+        return stack
+    """, O1),
+
+    ("""
+    def larger_of(a, b):
+        return max(a, b)
+    """, O1),
+
+    ("""
+    def fetch(mapping, key):
+        return mapping.get(key)
+    """, O1),
 ]
 
 

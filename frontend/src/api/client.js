@@ -9,13 +9,28 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 async function _post(path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let res
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    // fetch() rejects only on network failure. The overwhelmingly common
+    // cause on a fresh checkout is that the backend simply is not running,
+    // and the raw message ("Failed to fetch") does not say so.
+    throw new Error(
+      'Cannot reach the backend. Start it with:  cd backend && python -m app.main'
+    )
+  }
 
-  const data = await res.json()
+  let data
+  try {
+    data = await res.json()
+  } catch {
+    throw new Error(`Backend returned a non-JSON response (status ${res.status})`)
+  }
 
   if (!res.ok) {
     throw new Error(data.error ?? `Request failed with status ${res.status}`)

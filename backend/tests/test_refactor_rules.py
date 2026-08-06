@@ -249,6 +249,105 @@ def test_bool_comparison_semantics_preserved():
 
 
 # ---------------------------------------------------------------------------
+# per-function complexity
+# ---------------------------------------------------------------------------
+
+def _predict(code):
+    from app.ml.complexity_predictor import predict_complexity
+    return predict_complexity(code, code)
+
+
+MIXED_FILE = (
+    "def find_duplicates(nums):\n"
+    "    duplicates = []\n"
+    "    for i in range(len(nums)):\n"
+    "        for j in range(i + 1, len(nums)):\n"
+    "            if nums[i] == nums[j]:\n"
+    "                duplicates.append(nums[i])\n"
+    "    return duplicates\n"
+    "\n"
+    "def calculate_stats(data):\n"
+    "    total = 0\n"
+    "    for item in data:\n"
+    "        total = total + item\n"
+    "    return total / len(data)\n"
+)
+
+
+def test_each_function_is_analysed_separately():
+    prediction = _predict(MIXED_FILE)
+    if prediction is None:
+        return  # scikit-learn unavailable
+    names = {f.name for f in prediction.functions}
+    assert names == {"find_duplicates", "calculate_stats"}, names
+    by_name = {f.name: f for f in prediction.functions}
+    assert by_name["find_duplicates"].complexity == "O(n\u00b2)"
+    assert by_name["calculate_stats"].complexity == "O(n)"
+
+
+def test_slowest_function_drives_the_headline():
+    prediction = _predict(MIXED_FILE)
+    if prediction is None:
+        return
+    assert prediction.before == "O(n\u00b2)"
+    dominant = [f for f in prediction.functions if f.is_dominant]
+    assert len(dominant) == 1
+    assert dominant[0].name == "find_duplicates"
+
+
+def test_mixed_file_keeps_high_confidence():
+    """
+    Analysing a mixed file as one blob produced a blended ~52% prediction.
+    Per-function analysis should report the dominant function's own
+    confidence, which is high.
+    """
+    prediction = _predict(MIXED_FILE)
+    if prediction is None:
+        return
+    assert prediction.confidence >= 0.80, (
+        f"confidence regressed to {prediction.confidence} — "
+        f"per-function analysis may have stopped working"
+    )
+
+
+def test_single_function_file_still_works():
+    prediction = _predict("def f(n):\n    for i in range(n):\n        print(i)\n")
+    if prediction is None:
+        return
+    assert len(prediction.functions) == 1
+    assert prediction.functions[0].is_dominant
+    assert prediction.before == prediction.functions[0].complexity
+
+
+def test_script_without_functions_falls_back_to_module():
+    prediction = _predict("total = 0\nfor i in range(10):\n    total = total + i\n")
+    if prediction is None:
+        return
+    assert prediction.functions == []
+    assert prediction.before, "module-level fallback produced no prediction"
+
+
+def test_class_methods_are_analysed():
+    code = (
+        "class Table:\n"
+        "\n"
+        "    def lookup(self, key):\n"
+        "        return self.data[key]\n"
+        "\n"
+        "    def scan_pairs(self, rows):\n"
+        "        found = []\n"
+        "        for a in rows:\n"
+        "            for b in rows:\n"
+        "                found.append((a, b))\n"
+        "        return found\n"
+    )
+    prediction = _predict(code)
+    if prediction is None:
+        return
+    assert {f.name for f in prediction.functions} == {"lookup", "scan_pairs"}
+
+
+# ---------------------------------------------------------------------------
 # 2. Semantic equivalence — the test that actually matters
 # ---------------------------------------------------------------------------
 

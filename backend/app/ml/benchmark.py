@@ -192,12 +192,28 @@ def bfs(graph, start):
                 q.append(nb)
     return order
 """),
- ("reverse_string", "O(n)", """
+ # NOTE: this was originally labelled O(n) — that label was WRONG, and the
+ # model flagged it after string-concatenation detection was added. Python
+ # strings are immutable, so `out = ch + out` copies the whole accumulated
+ # string on every iteration: the loop is quadratic. Left in deliberately as
+ # the O(n^2) case it actually is, and as a reminder that a hand-written
+ # ground-truth label is itself a thing that can be wrong.
+ ("reverse_string_concat", "O(n\u00b2)", """
 def reverse(s):
     out = ''
     for ch in s:
         out = ch + out
     return out
+"""),
+
+ # The linear way to do the same thing, for contrast.
+ ("reverse_string_join", "O(n)", """
+def reverse(s):
+    pieces = []
+    for ch in s:
+        pieces.append(ch)
+    pieces.reverse()
+    return ''.join(pieces)
 """),
  ("selection_sort", "O(n²)", """
 def selection_sort(arr):
