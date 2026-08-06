@@ -70,7 +70,12 @@ augmentation. Quote 132. The extra samples are structural no-ops — renamed
 identifiers, added statements, added branches — that teach the model which
 features to ignore. They are not new evidence about complexity.
 
-Run `python -m app.ml.audit` to reproduce every claim below.
+Run `python -m app.ml.audit` to reproduce every claim below. Use the exact
+versions in [`backend/requirements-lock.txt`](backend/requirements-lock.txt)
+when doing so — `>=` ranges in `requirements.txt` are for humans installing
+the app, not for reproducing these numbers. This already caused a real
+discrepancy: scikit-learn 1.8 produced 98.1% grouped CV and 1.9 produced
+97.4% on identical code.
 
 ### Why the flattering numbers are wrong
 
