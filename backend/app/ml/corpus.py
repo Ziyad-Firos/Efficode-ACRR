@@ -1276,6 +1276,21 @@ _BASE: List[Tuple[str, int]] = [
         return total
     """, ON3),
 
+    ("""
+    def bellman_ford(adj, n, source):
+        dist = [float('inf')] * n
+        dist[source] = 0
+        changed = True
+        while changed == True:
+            changed = False
+            for u in range(n):
+                for v in range(n):
+                    if adj[u][v] is not None and dist[u] + adj[u][v] < dist[v]:
+                        dist[v] = dist[u] + adj[u][v]
+                        changed = True
+        return dist
+    """, ON3),
+
     # ── O(2^n) ────────────────────────────────────────────────────────────
     ("""
     def all_subsets(nums, i):

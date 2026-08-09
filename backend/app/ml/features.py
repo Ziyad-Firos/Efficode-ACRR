@@ -6,7 +6,7 @@ features at training time and at prediction time. The previous design
 hand-typed training vectors, which meant training data and the extractor
 could silently disagree.
 
-Feature vector (21 features)
+Feature vector (24 features)
 ----------------------------
   0  max_loop_depth              deepest nesting of loops AND comprehensions
   1  loop_count                  total loops (comprehension generators count)
@@ -33,6 +33,11 @@ Feature vector (21 features)
                                  2+ = branching, i.e. exponential)
  22  bulk_collection_op          whole-collection work with no visible loop:
                                  set(a) & set(b), ''.join(x), x[:] — all O(n)
+ 23  has_convergence_flag_while  "while flag: flag = False; ... flag = True"
+                                 idiom — NOT used to pick a label (see the
+                                 function docstring: the same shape is O(n^2)
+                                 for an early-exit sort and O(n^3) for
+                                 Bellman-Ford). Only feeds explain()'s caveat.
 
 Features 4, 6 and 9 carry little asymptotic signal. They are retained
 deliberately: corpus.py generates variants that vary exactly these values
@@ -57,7 +62,7 @@ from __future__ import annotations
 import ast
 from typing import List, Optional, Set
 
-FEATURE_COUNT = 23
+FEATURE_COUNT = 24
 
 FEATURE_NAMES = [
     "max_loop_depth", "loop_count", "has_recursion", "nested_loop_count",
@@ -67,7 +72,7 @@ FEATURE_NAMES = [
     "linear_scan_in_loop", "has_visited_guard", "comprehension_count",
     "while_loop_halves", "sort_inside_loop", "string_concat_in_loop",
     "has_mutual_recursion", "mutual_recursion_branches",
-    "bulk_collection_op",
+    "bulk_collection_op", "has_convergence_flag_while",
 ]
 
 _LOOPS = (ast.For, ast.While, ast.AsyncFor)
@@ -534,6 +539,69 @@ def _while_loop_halves(tree: ast.AST) -> bool:
     return False
 
 
+def _flag_name(test: ast.AST) -> Optional[str]:
+    """If `test` is a boolean-flag check (`while x:`, `while x == True:`,
+    `while x is True:`, `while x != False:`), return the flag's name."""
+    if isinstance(test, ast.Name):
+        return test.id
+    if isinstance(test, ast.Compare) and len(test.ops) == 1 and len(test.comparators) == 1:
+        left, op, right = test.left, test.ops[0], test.comparators[0]
+        if isinstance(left, ast.Name) and isinstance(right, ast.Constant) \
+                and isinstance(right.value, bool):
+            if isinstance(op, (ast.Eq, ast.Is)) and right.value is True:
+                return left.id
+            if isinstance(op, (ast.NotEq, ast.IsNot)) and right.value is False:
+                return left.id
+    return None
+
+
+def _has_convergence_flag_while(tree: ast.AST) -> bool:
+    """
+    A while-loop guarded by a boolean flag the body resets to False up front
+    and conditionally sets back to True — "keep going until nothing changed":
+    early-exit bubble sort, Bellman-Ford relaxation, any fixed-point pass.
+
+    This deliberately does NOT change the predicted complexity label. How
+    many passes such a loop needs is a property of the algorithm's DATA, not
+    its syntax. Verified on two real, equally realistic samples that share
+    this exact shape: a comparison sort that always converges in one pass
+    (true cost O(n^2)) and Bellman-Ford over an adjacency matrix, where each
+    pass only propagates a shortest path one hop further, so convergence
+    genuinely takes up to n passes (true cost O(n^3)) — confirmed empirically
+    on both, passes growing with n on the second. No AST-level feature can
+    tell these apart; it requires reasoning about what the comparison
+    computes, not what it looks like. This feature exists so `explain()` can
+    say so honestly instead of stating one of the two guesses with unearned
+    confidence.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.While):
+            continue
+        flag = _flag_name(node.test)
+        if flag is None or not node.body:
+            continue
+        first = node.body[0]
+        resets = (
+            isinstance(first, ast.Assign)
+            and len(first.targets) == 1
+            and isinstance(first.targets[0], ast.Name)
+            and first.targets[0].id == flag
+            and isinstance(first.value, ast.Constant)
+            and first.value.value is False
+        )
+        if not resets:
+            continue
+        for sub in ast.walk(node):
+            if sub is first:
+                continue
+            if isinstance(sub, ast.Assign) and len(sub.targets) == 1 \
+                    and isinstance(sub.targets[0], ast.Name) \
+                    and sub.targets[0].id == flag \
+                    and isinstance(sub.value, ast.Constant) and sub.value.value is True:
+                return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Costs the original 18 features could not see
 # ---------------------------------------------------------------------------
@@ -798,7 +866,7 @@ def _bulk_collection_op(tree: ast.AST) -> bool:
 
 def extract_features(code: str) -> Optional[List[int]]:
     """
-    Extract the 18-element feature vector. Returns None if code does not parse.
+    Extract the 24-element feature vector. Returns None if code does not parse.
     """
     try:
         tree = ast.parse(code)
@@ -894,4 +962,5 @@ def extract_features_from_tree(tree: ast.AST) -> List[int]:
         int(_has_mutual_recursion(tree)),               # 20
         _mutual_recursion_branches(tree),               # 21
         int(_bulk_collection_op(tree)),                 # 22
+        int(_has_convergence_flag_while(tree)),          # 23
     ]

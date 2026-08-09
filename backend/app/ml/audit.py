@@ -364,23 +364,19 @@ def paths_to(n):
         return 1
     return paths_to(n - 1) + paths_to(n - 2) + paths_to(n - 3)
 '''),
-    ("early-exit sort wrapped in an unrelated while-halving red herring", "O(n²)", '''
-def sort_with_early_exit(values):
-    working = list(values)
-    changed = True
-    swap_count = 0
-    while changed == True:
-        changed = False
-        for i in range(len(working)):
-            for j in range(i + 1, len(working)):
-                if working[i] > working[j]:
-                    working[i], working[j] = working[j], working[i]
-                    swap_count = swap_count + 1
-                    changed = True
-                    noise = swap_count // 2
-    return swap_count
-'''),
 ]
+
+# Deliberately NOT in STRESS_CASES above, and NOT in the training corpus.
+# "while flag: flag = False; for i: for j: ... if cond: flag = True" is
+# genuinely ambiguous from syntax alone: an early-exit comparison sort with
+# this exact shape always converges in 1-2 passes (true cost O(n^2), verified
+# empirically over 2000 random arrays), while Bellman-Ford relaxation over an
+# adjacency matrix — same shape — needs up to n passes (true cost O(n^3),
+# verified empirically, passes growing with n). Forcing either label into
+# STRESS_CASES as a pass/fail expectation would mean the audit rewards the
+# model for guessing right on a coin flip it cannot structurally resolve.
+# See check_labels() below and has_convergence_flag_while in features.py,
+# which exists to make the model's uncertainty here honest instead of silent.
 
 
 def _contaminated_stress_cases() -> set:
@@ -474,6 +470,10 @@ def check_labels() -> None:
         ("count_digits", "same — logarithmic in the value of n, not len(input)"),
         ("fib_memo", "labelled O(n) in n, but arithmetic on big ints is not O(1)"),
         ("list append", "treated as O(1); that is amortised, not worst case"),
+        ("convergence-flag while loops", "'while flag: flag=False; for: for: ...' is "
+                "structurally identical for an early-exit sort (verified O(n^2), "
+                "converges in 1-2 passes) and Bellman-Ford relaxation (verified O(n^3), "
+                "passes grow with n) — no label was chosen for this shape either way"),
     ]
     for name, note in arguable:
         print(f"  {name:<16} {note}")

@@ -203,6 +203,15 @@ def explain(features: List[int]) -> List[str]:
     elif not f["has_recursion"]:
         notes.append("no loops and no recursion — the work does not grow with input size")
 
+    if f["has_convergence_flag_while"] and depth >= 2:
+        notes.append(
+            "the outer while-loop only runs until a flag stops changing — how many "
+            "passes that takes depends on what the loop body actually computes, not "
+            "just its shape (as few as 1-2 passes for an early-exit comparison sort, "
+            "or growing with n for iterative relaxation like Bellman-Ford). Treat this "
+            "estimate as an upper bound, not a certainty."
+        )
+
     if f["comprehension_count"]:
         notes.append(
             f"{f['comprehension_count']} comprehension(s) counted as loops "
