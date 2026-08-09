@@ -130,6 +130,20 @@ Rules that were followed when doing this:
 - Watch memory — scikit-learn plus a 150-tree forest on a 512 MB instance is
   not free. If it is tight, drop `n_estimators` and re-run `evaluate.py` to
   confirm accuracy holds.
+- **The AI layer is currently NOT working end-to-end, verified live.** A
+  `GEMINI_API_KEY` is set in `backend/.env`, and the SSL issue that used to
+  block it locally (`CERTIFICATE_VERIFY_FAILED` — same corporate-network
+  cause as the earlier `git push` failure) is fixed by `pip-system-certs`
+  (added to `requirements.txt`). But the key's Google Cloud project itself
+  returns `429 RESOURCE_EXHAUSTED` with `limit: 0` for
+  `gemini-2.0-flash-lite`'s free tier — a zero-quota project configuration,
+  confirmed persistent (retried after the API's own suggested delay, same
+  result). This needs the account owner to check
+  [Google AI Studio](https://aistudio.google.com/apikey) — likely either the
+  free tier isn't enabled for this project, or a fresh key from a
+  differently-configured project is needed. Not fixable from code. Until
+  resolved, `/refactor` correctly degrades to `ai_available: false` — this
+  is not a regression, the rest of the app works fine without it.
 
 ### 7. ~~Optional — wire Big-O into the quality grade~~ — done
 

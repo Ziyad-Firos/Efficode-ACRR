@@ -36,6 +36,15 @@ numpy>=1.26.0
 google-genai>=1.0.0
 httpx>=0.27.0
 
+# On some Windows networks (TLS-inspecting corporate proxy, etc.) Python's
+# bundled certifi CA list doesn't include the intercepting root cert, so
+# every HTTPS call — including the Gemini API — fails with
+# CERTIFICATE_VERIFY_FAILED even though the same request succeeds from a
+# browser or git using Windows' own trust store. This makes the ssl module
+# trust whatever Windows (or macOS Keychain) already trusts instead of only
+# certifi's bundle. No-op on a network that doesn't have this problem.
+pip-system-certs>=4.0
+
 # ── Production server ─────────────────────────────────────────────────────
 # Flask's built-in server is single-threaded and explicitly not for
 # production. gunicorn is what Procfile/render.yaml invoke.
