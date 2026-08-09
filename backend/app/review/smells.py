@@ -15,6 +15,8 @@ Checks implemented:
   SMELL008 — Bare except clause (catches everything including KeyboardInterrupt)
   SMELL009 — Mutable default argument (def f(x=[]) — classic Python footgun)
   SMELL010 — Variable shadowing a builtin (list, dict, str, etc.)
+  SMELL011 — Inconsistent return type (literal constants of different types
+             returned across branches, e.g. `return 0` vs `return "error"`)
 """
 
 from __future__ import annotations
@@ -70,6 +72,7 @@ def analyze_smells(code: str) -> List[Issue]:
         issues += _check_bare_except(tree)
         issues += _check_mutable_defaults(tree)
         issues += _check_builtin_shadowing(tree)
+        issues += _check_inconsistent_return_type(tree)
         logger.debug("smell check: %d issues found", len(issues))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Unexpected error in smell check: %s", exc)
@@ -326,4 +329,86 @@ def _check_builtin_shadowing(tree: ast.AST) -> List[Issue]:
                             "Rename it."
                         ),
                     ))
+    return issues
+
+
+def _return_literal_kind(value: "ast.expr | None") -> "str | None":
+    """
+    Classify a `return` value's static type if -- and only if -- it is a
+    bare literal constant. None means "not classifiable": a variable, a
+    call, a binary expression, `return None`, or a bare `return`.
+
+    Deliberately conservative. This is a pattern check, not type inference:
+    guessing the type of `return some_variable` would need real data-flow
+    analysis, and a wrong guess is a worse false positive than staying
+    silent. `return None` is excluded on purpose too -- mixing None with a
+    real value is the ordinary "optional result" idiom, not a smell.
+    """
+    if value is None or not isinstance(value, ast.Constant):
+        return None
+    v = value.value
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, str):
+        return "str"
+    if isinstance(v, (int, float)):
+        return "number"
+    return None
+
+
+def _direct_returns(node: ast.AST) -> List[ast.Return]:
+    """`return` statements that belong to THIS function, not to any function
+    nested inside it. A plain ast.walk() would attribute a closure's returns
+    to its enclosing function too."""
+    found: List[ast.Return] = []
+
+    def walk(n: ast.AST) -> None:
+        for child in ast.iter_child_nodes(n):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(child, ast.Return):
+                found.append(child)
+            walk(child)
+
+    walk(node)
+    return found
+
+
+def _check_inconsistent_return_type(tree: ast.AST) -> List[Issue]:
+    """
+    A function that returns literal constants of different types across
+    branches -- e.g. an int on one path and a string on another. Every
+    caller then has to check the result's type before using it. Usually a
+    sign a real result is being conflated with a sentinel/error value; an
+    exception is almost always the better tool for the error case.
+    """
+    issues = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        first_line_for_kind: dict = {}
+        for ret in _direct_returns(node):
+            kind = _return_literal_kind(ret.value)
+            if kind is not None and kind not in first_line_for_kind:
+                first_line_for_kind[kind] = getattr(ret, "lineno", node.lineno)
+
+        if len(first_line_for_kind) >= 2:
+            ordered = sorted(first_line_for_kind.items(), key=lambda kv: kv[1])
+            kinds_str = ", ".join(f"{k} (line {ln})" for k, ln in ordered)
+            issues.append(Issue(
+                line=node.lineno,
+                severity=IssueSeverity.WARNING,
+                category=IssueCategory.SMELL,
+                rule="SMELL011",
+                message=(
+                    f"Function '{node.name}' returns different literal types across "
+                    f"branches: {kinds_str}. Callers must check the type before using "
+                    "the result. Prefer a consistent return type, or raise an "
+                    "exception for the error case instead of returning a different "
+                    "type as a sentinel."
+                ),
+            ))
     return issues

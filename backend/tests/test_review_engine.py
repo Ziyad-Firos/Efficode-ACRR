@@ -251,6 +251,46 @@ def test_smells_quiet_on_clean_code():
     assert analyze_smells("def add(a, b):\n    return a + b\n") == []
 
 
+def test_smells_detects_inconsistent_return_type():
+    code = (
+        "def parse(x):\n"
+        "    if x is None:\n"
+        "        return 'error'\n"
+        "    return 42\n"
+    )
+    issues = analyze_smells(code)
+    rule_hits = [i for i in issues if i.rule == "SMELL011"]
+    assert rule_hits, "str/int return mismatch produced no SMELL011"
+    assert rule_hits[0].category == IssueCategory.SMELL
+
+
+def test_smells_ignores_optional_return_pattern():
+    """`return value` on one path and `return None` on another is the
+    ordinary optional-result idiom, not a smell -- must stay silent."""
+    code = (
+        "def find(items, target):\n"
+        "    for i, x in enumerate(items):\n"
+        "        if x == target:\n"
+        "            return i\n"
+        "    return None\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL011"]
+    assert issues == []
+
+
+def test_smells_does_not_guess_variable_return_types():
+    """return a / return b with no literals -- no type inference attempted,
+    so this must stay silent rather than risk a wrong guess."""
+    code = (
+        "def pick(a, b, flag):\n"
+        "    if flag:\n"
+        "        return a\n"
+        "    return b\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL011"]
+    assert issues == []
+
+
 # ---------------------------------------------------------------------------
 # End-to-end grading
 # ---------------------------------------------------------------------------
@@ -308,7 +348,29 @@ def test_review_survives_every_analyser_failing():
 def test_score_breakdown_within_bounds():
     breakdown = asyncio.run(run_all_checks(MESSY)).quality_score.breakdown
     for name, value in breakdown.model_dump().items():
+        # big_o is Optional: None when the complexity model is unavailable
+        # or gave no prediction. That is a valid, documented state, not
+        # something to bounds-check.
+        if value is None:
+            continue
         assert 0 <= value <= 100, f"{name} out of range: {value}"
+
+
+def test_triple_nested_loop_lowers_grade_via_big_o():
+    """
+    The scenario HANDOFF step 7 was written for: a messy O(n^3+) function
+    used to score however its style/security/maintainability issues alone
+    added up to, with the ML complexity engine's own headline prediction
+    having zero influence on the number right next to it.
+    """
+    response = asyncio.run(run_all_checks(MESSY))
+    breakdown = response.quality_score.breakdown
+    if breakdown.big_o is None:
+        return  # complexity model unavailable in this environment — skip
+    assert breakdown.big_o < 100, (
+        f"triple-nested-loop code got big_o={breakdown.big_o}, expected a "
+        "real penalty for O(n^3+)-shaped code"
+    )
 
 
 # ---------------------------------------------------------------------------

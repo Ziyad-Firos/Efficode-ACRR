@@ -15,10 +15,13 @@ const GRADE_COLOR = {
  *   score  {object}  QualityScore from backend
  *     .score      {number} 0-100
  *     .grade      {string} A-F
- *     .breakdown  {object} {style, complexity, security, maintainability}
+ *     .breakdown  {object} {style, complexity, security, maintainability, big_o}
+ *       .big_o is nullable — absent/null when the ML complexity model had
+ *       no prediction to score (model unavailable, code didn't parse, etc.)
  */
 export default function ScoreCard({ score }) {
   const color = GRADE_COLOR[score.grade] ?? '#8892b0'
+  const bigO = score.breakdown.big_o
 
   return (
     <div className={styles.card}>
@@ -39,6 +42,7 @@ export default function ScoreCard({ score }) {
         <BreakdownBar label="Complexity"    value={score.breakdown.complexity} />
         <BreakdownBar label="Security"      value={score.breakdown.security} />
         <BreakdownBar label="Maintainability" value={score.breakdown.maintainability} />
+        {bigO != null && <BreakdownBar label="Big-O" value={bigO} />}
       </div>
     </div>
   )

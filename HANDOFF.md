@@ -12,7 +12,7 @@
 |---|---|---|
 | Complexity engine (ML) | **Working, audited** | Nothing blocking — thin classes expanded (see below) |
 | Refactor engine | **Working, tested** | Nothing blocking |
-| Review engine | **Working, tested** | Big-O prediction does not feed the quality grade |
+| Review engine | **Working, tested** | Nothing blocking |
 | Frontend | **Working, verified in browser** | Cosmetic only |
 | Tests | **68 passing** + audit tool | Nothing blocking |
 | Documentation | **Complete, honest numbers** | Nothing blocking |
@@ -131,12 +131,21 @@ Rules that were followed when doing this:
   not free. If it is tight, drop `n_estimators` and re-run `evaluate.py` to
   confirm accuracy holds.
 
-### 7. Optional — wire Big-O into the quality grade
+### 7. ~~Optional — wire Big-O into the quality grade~~ — done
 
-Currently the review grade uses only radon's *cyclomatic* complexity, which
-reads 100/100 for a clean nested loop. Messy `O(n²)` demo code scores B (87).
-The app's headline feature does not influence its own grade. This is a design
-decision, not a bug — decide deliberately.
+The review grade used to use only radon's *cyclomatic* complexity, which
+read 100/100 for a clean nested loop. Messy `O(n²)` demo code scored B (87).
+The app's headline feature didn't influence its own grade.
+
+Fixed: `_compute_quality_score` in `app/review/__init__.py` now blends a
+confidence-scaled `big_o` term (20% weight) using `predict_dominant_label` —
+the same "slowest function wins" analysis `/refactor` already used, factored
+out so the two endpoints can't disagree about the same code. A missing/failed
+prediction falls back to the original four-category weighting untouched, so
+this never silently lowers a score that would otherwise have been computed
+without it. `QualityBreakdown.big_o` is `Optional[int]`, `None` when
+unavailable. Surfaced in the frontend (`ScoreCard.jsx`) as a fifth breakdown
+bar, shown only when non-null.
 
 ---
 

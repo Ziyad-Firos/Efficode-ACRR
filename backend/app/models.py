@@ -82,6 +82,13 @@ class QualityBreakdown(BaseModel):
     complexity: int = Field(..., ge=0, le=100)
     security: int = Field(..., ge=0, le=100)
     maintainability: int = Field(..., ge=0, le=100)
+    big_o: Optional[int] = Field(
+        None, ge=0, le=100,
+        description="Score derived from the predicted Big-O class, scaled by "
+                     "prediction confidence. None if the complexity model is "
+                     "unavailable or gave no prediction — the overall score "
+                     "then falls back to the other three categories.",
+    )
 
 
 class QualityScore(BaseModel):
@@ -166,6 +173,14 @@ class RefactorResponse(BaseModel):
     applied_rules: List[AppliedRule] = Field(default_factory=list)
     ai_suggestions: List[AISuggestion] = Field(default_factory=list)
     ai_available: bool = Field(..., description="False if AI layer was unreachable or disabled")
+    correctness_concerns: List[str] = Field(
+        default_factory=list,
+        description="Suspected logic/correctness issues the AI noticed, distinct from "
+                     "refactoring suggestions. Only an LLM given the code can plausibly "
+                     "reason about intent vs. implementation — the deterministic engines "
+                     "(rules, ML complexity model) never attempt this. Always empty when "
+                     "ai_available is False.",
+    )
     complexity: Optional[ComplexityPrediction] = None
     summary: str
 

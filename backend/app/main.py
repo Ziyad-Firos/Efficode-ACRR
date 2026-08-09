@@ -209,6 +209,7 @@ def refactor():
             "applied_rules": [],
             "ai_suggestions": [],
             "ai_available": False,
+            "correctness_concerns": [],
             "complexity": None,
             "summary": f"Cannot refactor: syntax error — {parse_result.error}",
         })
@@ -218,9 +219,10 @@ def refactor():
 
     # AI layer (optional)
     ai_suggestions = []
+    correctness_concerns = []
     ai_available = False
     if use_ai:
-        ai_suggestions, ai_available = asyncio.run(get_ai_suggestions(
+        ai_suggestions, correctness_concerns, ai_available = asyncio.run(get_ai_suggestions(
             original_code=code,
             rule_refactored_code=rule_result.refactored_code,
         ))
@@ -252,6 +254,11 @@ def refactor():
             f"{suggestion_count} suggestion{'s' if suggestion_count != 1 else ''} "
             f"not auto-applied"
         )
+    if correctness_concerns:
+        n = len(correctness_concerns)
+        summary_parts.append(
+            f"{n} possible correctness concern{'s' if n != 1 else ''} flagged"
+        )
     if not summary_parts:
         summary_parts = ["No changes needed — code looks clean"]
 
@@ -262,6 +269,7 @@ def refactor():
         "applied_rules": [r.model_dump() for r in rule_result.applied_rules],
         "ai_suggestions": [s.model_dump() for s in ai_suggestions],
         "ai_available": ai_available,
+        "correctness_concerns": correctness_concerns,
         "complexity": complexity.model_dump() if complexity else None,
         "summary": ", ".join(summary_parts) + ".",
     })

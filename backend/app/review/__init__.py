@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional, Tuple
 
 from app.models import (
     Issue,
@@ -33,6 +33,7 @@ from app.review.style import analyze_style
 from app.review.complexity import analyze_complexity, get_maintainability_index
 from app.review.security import analyze_security
 from app.review.smells import analyze_smells
+from app.ml.complexity_predictor import predict_dominant_label
 
 logger = logging.getLogger("acrr.review")
 
@@ -79,8 +80,9 @@ async def run_all_checks(code: str) -> ReviewResponse:
 
     # Quality score
     mi = get_maintainability_index(code)
+    big_o = await _safe_predict(code)
     quality_score = _compute_quality_score(
-        all_issues, mi
+        all_issues, mi, big_o
     )
 
     # Human-readable summary
@@ -119,16 +121,74 @@ async def _safe_check(name: str, runner, fn, *args) -> List[Issue]:
         return []
 
 
+async def _safe_predict(code: str) -> Optional[Tuple[str, float]]:
+    """predict_label(), isolated the same way the four checks above are —
+    None (not an exception) on timeout, missing model, or any failure."""
+    try:
+        return await asyncio.wait_for(
+            _run_in_executor(predict_dominant_label, code), timeout=_CHECK_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.warning("complexity prediction timed out after %ss", _CHECK_TIMEOUT)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("complexity prediction failed: %s", exc)
+        return None
+
+
 # ── Quality score assembly ─────────────────────────────────────────────────
 
-def _compute_quality_score(issues: List[Issue], maintainability_index: float) -> QualityScore:
+# Base score (before confidence scaling) for each predicted complexity
+# class. O(n) and below are the normal case for real code and are not
+# penalised; O(n log n) is the standard cost of a sort-based algorithm and
+# is barely penalised. O(n²) and up are where the review previously had
+# nothing to say -- the ML complexity engine could call a nested-loop
+# function "O(n^3+) (78% conf.)" in the same response that graded it A,
+# because the grade never looked at the prediction at all.
+_BIG_O_BASE_SCORE = {
+    "O(1)": 100,
+    "O(log n)": 100,
+    "O(n)": 100,
+    "O(n log n)": 95,
+    "O(n²)": 75,
+    "O(n³+)": 45,
+    "O(2^n)": 15,
+}
+
+
+def _big_o_score(prediction: Optional[Tuple[str, float]]) -> Optional[int]:
+    """
+    Confidence-scaled score for the predicted complexity class, or None if
+    there is no prediction to score.
+
+    A low-confidence guess should not swing the grade as hard as a
+    high-confidence one -- the model's own calibration work (see
+    app/ml/audit.py) showed it is honestly under-confident, so a 46%
+    confidence O(n³+) guess (main() in the New Year Chaos test case) is
+    blended much closer to neutral than a 99% one.
+    """
+    if prediction is None:
+        return None
+    label, confidence = prediction
+    base = _BIG_O_BASE_SCORE.get(label)
+    if base is None:
+        return None
+    return int(100 - confidence * (100 - base))
+
+
+def _compute_quality_score(
+    issues: List[Issue],
+    maintainability_index: float,
+    big_o_prediction: Optional[Tuple[str, float]] = None,
+) -> QualityScore:
     """
     Derive a 0–100 quality score from issue counts and maintainability index.
 
     Scoring model:
       - Start at 100
       - Deduct per issue by category × severity weight
-      - Blend with radon's maintainability index for the final score
+      - Blend with radon's maintainability index and the predicted Big-O
+        class for the final score
 
     Deduction table (points per issue):
       ERROR   WARNING   INFO/STYLE
@@ -169,14 +229,28 @@ def _compute_quality_score(issues: List[Issue], maintainability_index: float) ->
     # so short bad code doesn't get a free 25-point boost from MI alone
     maint_score = min(80, int(maintainability_index * 1.0))
 
-    # Weighted overall — security and style drive the grade
-    # Weights: style 25%, complexity 25%, security 35%, maintainability 15%
-    overall = int(
-        style_score      * 0.25
-        + complexity_score * 0.25
-        + security_score   * 0.35
-        + maint_score      * 0.15
-    )
+    big_o_score = _big_o_score(big_o_prediction)
+
+    # Weighted overall — security still drives the grade.
+    # With a prediction:    style 20%, complexity 20%, security 30%, maintainability 10%, big_o 20%
+    # Without (unavailable): style 25%, complexity 25%, security 35%, maintainability 15% -- the
+    # original weights, unchanged, so a missing/failed prediction never lowers a score that
+    # would otherwise have been computed without it.
+    if big_o_score is None:
+        overall = int(
+            style_score      * 0.25
+            + complexity_score * 0.25
+            + security_score   * 0.35
+            + maint_score      * 0.15
+        )
+    else:
+        overall = int(
+            style_score      * 0.20
+            + complexity_score * 0.20
+            + security_score   * 0.30
+            + maint_score      * 0.10
+            + big_o_score       * 0.20
+        )
 
     grade = _score_to_grade(overall)
 
@@ -188,6 +262,7 @@ def _compute_quality_score(issues: List[Issue], maintainability_index: float) ->
             complexity=complexity_score,
             security=security_score,
             maintainability=maint_score,
+            big_o=big_o_score,
         ),
     )
 

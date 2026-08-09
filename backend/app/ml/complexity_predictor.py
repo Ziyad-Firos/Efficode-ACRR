@@ -445,7 +445,16 @@ def predict_complexity(
 
 
 def predict_label(code: str) -> Optional[Tuple[str, float]]:
-    """Convenience helper used by the eval harness: returns (label, confidence)."""
+    """
+    Convenience helper used by the eval harness: returns (label, confidence)
+    for the WHOLE code blob as one unit.
+
+    Deliberately not used by the review engine's grading (see
+    predict_dominant_label below) — analysing a multi-function file as one
+    unit flattens every function's loop structure together and produces
+    exactly the low-confidence averages analyse_functions()'s docstring
+    warns about.
+    """
     model = _get_model()
     if model is None:
         return None
@@ -458,3 +467,26 @@ def predict_label(code: str) -> Optional[Tuple[str, float]]:
     proba = model.predict_proba([feats])[0]
     classes = list(getattr(model, "classes_", range(len(CLASS_LABELS))))
     return CLASS_LABELS[classes[int(np.argmax(proba))]], round(float(max(proba)), 2)
+
+
+def predict_dominant_label(code: str) -> Optional[Tuple[str, float]]:
+    """
+    (label, confidence) for the function that sets the whole file's
+    complexity — same "slowest function wins" analysis predict_complexity()
+    uses for /refactor, factored out so /review's quality grade and
+    /refactor's headline figure never disagree about the same code.
+    """
+    model = _get_model()
+    if model is None:
+        return None
+
+    functions = analyse_functions(code, model)
+    if functions:
+        dominant = next(f for f in functions if f.is_dominant)
+        return dominant.complexity, dominant.confidence
+
+    predicted = _predict_one(model, code)
+    if predicted is None:
+        return None
+    label, confidence, _feats = predicted
+    return label, confidence
