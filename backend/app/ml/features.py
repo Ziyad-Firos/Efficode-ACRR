@@ -494,15 +494,43 @@ def _has_visited_guard(tree: ast.AST, hashed: Set[str]) -> bool:
 _HALVING_OPS = (ast.FloorDiv, ast.Div, ast.Mod, ast.RShift, ast.LShift)
 
 
+def _names_referenced(node: ast.AST) -> Set[str]:
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+
 def _while_loop_halves(tree: ast.AST) -> bool:
-    """A while-loop whose body divides or shifts a bound — binary search,
-    digit counting, bit counting, Euclid's algorithm."""
+    """A while-loop whose OWN TEST is actually bounded by a variable the body
+    divides or shifts — binary search, digit counting, bit counting, Euclid's
+    algorithm.
+
+    It is not enough for a halving op to appear anywhere inside the loop body:
+    `while changed: ... fake = fake // 2 ...` is not geometrically shrinking,
+    it just happens to contain unrelated division. That false positive was
+    verified against a real adversarial sample (a while-loop guarded by a
+    boolean flag, with a pointless `x // 2` several statements deep) — it
+    produced a confident but hallucinated "halves its range" explanation.
+
+    Requiring the halved value to share a name with something in the loop's
+    own `test` catches every real case in the corpus (binary search halves
+    via `mid = (lo + hi) // 2` where lo/hi ARE the test; digit/bit counting
+    and Euclid's algorithm halve the exact variable the test reads) while
+    rejecting arithmetic that has nothing to do with why the loop terminates.
+    """
     for node in ast.walk(tree):
         if not isinstance(node, ast.While):
             continue
+        test_names = _names_referenced(node.test)
+        if not test_names:
+            continue
         for sub in ast.walk(node):
-            if isinstance(sub, (ast.BinOp, ast.AugAssign)) and isinstance(sub.op, _HALVING_OPS):
-                return True
+            if isinstance(sub, ast.BinOp) and isinstance(sub.op, _HALVING_OPS):
+                if _names_referenced(sub) & test_names:
+                    return True
+            elif isinstance(sub, ast.AugAssign) and isinstance(sub.op, _HALVING_OPS):
+                target_names = _names_referenced(sub.target)
+                value_names = _names_referenced(sub.value)
+                if (target_names | value_names) & test_names:
+                    return True
     return False
 
 

@@ -364,6 +364,22 @@ def paths_to(n):
         return 1
     return paths_to(n - 1) + paths_to(n - 2) + paths_to(n - 3)
 '''),
+    ("early-exit sort wrapped in an unrelated while-halving red herring", "O(n²)", '''
+def sort_with_early_exit(values):
+    working = list(values)
+    changed = True
+    swap_count = 0
+    while changed == True:
+        changed = False
+        for i in range(len(working)):
+            for j in range(i + 1, len(working)):
+                if working[i] > working[j]:
+                    working[i], working[j] = working[j], working[i]
+                    swap_count = swap_count + 1
+                    changed = True
+                    noise = swap_count // 2
+    return swap_count
+'''),
 ]
 
 

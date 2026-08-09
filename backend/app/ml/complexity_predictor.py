@@ -192,7 +192,7 @@ def explain(features: List[int]) -> List[str]:
     if depth >= 3:
         notes.append(f"{depth} levels of nested loops — work grows like n^{depth}")
     elif depth == 2:
-        notes.append("two nested loops — each element is compared against every other")
+        notes.append("one loop nested inside another — work can grow quadratically with input size")
     elif depth == 1:
         if f["loop_count"] > 1:
             notes.append(
@@ -252,7 +252,18 @@ def explain(features: List[int]) -> List[str]:
 
 
 def suggest_improvement(features: List[int]) -> Optional[str]:
-    """The single highest-value structural change, or None if nothing obvious."""
+    """
+    The single highest-value structural change, or None if nothing obvious.
+
+    There used to be a fourth branch here: "any nested loop without a
+    visited-guard" suggested a hash-map rewrite, unconditionally. That fires
+    on genuine lookup/duplicate-finding code, but just as readily on in-place
+    sorting, matrix operations, or Gaussian elimination — cases where there
+    is no list being searched and the advice is simply wrong. Confirmed on a
+    real sample: a nested swap-based sort got told to convert something to a
+    dict. `linear_scan_in_loop` below is the actual evidence for a hash-map
+    fix; without it, silence is more honest than a guess.
+    """
     f = dict(zip(FEATURE_NAMES, features))
 
     if f["linear_scan_in_loop"]:
@@ -266,12 +277,6 @@ def suggest_improvement(features: List[int]) -> Optional[str]:
         return (
             "Add memoisation — cache results by argument and return the cached value "
             "on re-entry. This collapses an exponential call tree to linear."
-        )
-    if f["max_loop_depth"] >= 2 and not f["has_visited_guard"]:
-        return (
-            "Consider whether the inner loop can be replaced by a hash map lookup. "
-            "Many nested-loop problems (pair sums, duplicate finding) become a single "
-            "pass with a dict."
         )
     if f["loop_bound_is_quadratic"]:
         return (
