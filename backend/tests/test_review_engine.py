@@ -291,6 +291,110 @@ def test_smells_does_not_guess_variable_return_types():
     assert issues == []
 
 
+def test_smells_detects_renamed_duplicate_function():
+    """Identical logic, different variable/parameter names -- SMELL006 only
+    catches exact statement matches and misses this; SMELL012 exists
+    specifically for it. Was verified against a CodeBERT-embedding-based
+    approach first, which failed calibration testing (ranked semantically
+    different same-shaped functions as more similar than genuine
+    duplicates) -- this deterministic check replaced it."""
+    code = (
+        "def sum_list(nums):\n"
+        "    total = 0\n"
+        "    for n in nums:\n"
+        "        total = total + n\n"
+        "    return total\n"
+        "\n"
+        "def add_all(values):\n"
+        "    result = 0\n"
+        "    for v in values:\n"
+        "        result = result + v\n"
+        "    return result\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL012"]
+    assert issues, "renamed-variable duplicate produced no SMELL012"
+    assert issues[0].category == IssueCategory.SMELL
+
+
+def test_smells_detects_renamed_recursive_duplicate():
+    """Recursive self-calls must normalize the same way a parameter does --
+    this was a real bug caught while building the check: the function's own
+    name wasn't being mapped, so fact()/factorial() (identical except for
+    the recursive call's name) went undetected until fixed."""
+    code = (
+        "def fact(n):\n"
+        "    if n <= 1:\n"
+        "        return 1\n"
+        "    return n * fact(n - 1)\n"
+        "\n"
+        "def factorial(m):\n"
+        "    if m <= 1:\n"
+        "        return 1\n"
+        "    return m * factorial(m - 1)\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL012"]
+    assert issues, "renamed recursive duplicate produced no SMELL012"
+
+
+def test_smells_does_not_flag_different_functions_same_shape():
+    """Two functions with the same structural shape (assign, call, return)
+    but genuinely different logic must NOT fire -- this is the exact case
+    that broke the CodeBERT-embedding approach (raw AND whitened cosine
+    similarity ranked this pair as MORE similar than a real duplicate)."""
+    code = (
+        "def get_name(user):\n"
+        "    total = user.first + user.last\n"
+        "    formatted = total.strip()\n"
+        "    return formatted\n"
+        "\n"
+        "def get_email(user):\n"
+        "    total = user.domain + user.local\n"
+        "    formatted = total.strip()\n"
+        "    return formatted\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL012"]
+    assert issues == []
+
+
+def test_smells_does_not_flag_unrelated_functions():
+    code = (
+        "def sum_list(nums):\n"
+        "    total = 0\n"
+        "    for n in nums:\n"
+        "        total = total + n\n"
+        "    return total\n"
+        "\n"
+        "def binary_search(arr, target):\n"
+        "    lo = 0\n"
+        "    hi = len(arr) - 1\n"
+        "    while lo <= hi:\n"
+        "        mid = (lo + hi) // 2\n"
+        "        if arr[mid] == target:\n"
+        "            return mid\n"
+        "        elif arr[mid] < target:\n"
+        "            lo = mid + 1\n"
+        "        else:\n"
+        "            hi = mid - 1\n"
+        "    return -1\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL012"]
+    assert issues == []
+
+
+def test_smells_near_duplicate_ignores_trivial_functions():
+    """Below the statement threshold -- two one-line getters would
+    otherwise flood results with noise; must stay silent."""
+    code = (
+        "def get_a(obj):\n"
+        "    return obj.a\n"
+        "\n"
+        "def get_b(obj):\n"
+        "    return obj.b\n"
+    )
+    issues = [i for i in analyze_smells(code) if i.rule == "SMELL012"]
+    assert issues == []
+
+
 # ---------------------------------------------------------------------------
 # End-to-end grading
 # ---------------------------------------------------------------------------

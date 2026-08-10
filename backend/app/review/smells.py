@@ -17,15 +17,19 @@ Checks implemented:
   SMELL010 — Variable shadowing a builtin (list, dict, str, etc.)
   SMELL011 — Inconsistent return type (literal constants of different types
              returned across branches, e.g. `return 0` vs `return "error"`)
+  SMELL012 — Near-duplicate function (identical logic to another function
+             with only variable/parameter names differing — SMELL006 only
+             catches EXACT statement matches, this catches renamed copies)
 """
 
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
 import logging
 from collections import Counter
-from typing import List, Set
+from typing import Dict, List, Set, Tuple
 
 from app.models import Issue, IssueCategory, IssueSeverity
 
@@ -36,6 +40,7 @@ _MAX_FUNCTION_STMTS = 20
 _MAX_NESTING_DEPTH = 3
 _MAX_PARAMS = 4
 _MAGIC_NUMBER_WHITELIST: Set[int] = {-1, 0, 1, 2}
+_MIN_STMTS_FOR_NEAR_DUP = 3  # matches SMELL006's window — below this, "duplicate" is noise
 
 _BUILTIN_NAMES: Set[str] = {
     "list", "dict", "set", "tuple", "str", "int", "float", "bool",
@@ -73,6 +78,7 @@ def analyze_smells(code: str) -> List[Issue]:
         issues += _check_mutable_defaults(tree)
         issues += _check_builtin_shadowing(tree)
         issues += _check_inconsistent_return_type(tree)
+        issues += _check_near_duplicate_functions(tree)
         logger.debug("smell check: %d issues found", len(issues))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Unexpected error in smell check: %s", exc)
@@ -411,4 +417,125 @@ def _check_inconsistent_return_type(tree: ast.AST) -> List[Issue]:
                     "type as a sentinel."
                 ),
             ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# SMELL012 — near-duplicate functions (renamed variables, same logic)
+# ---------------------------------------------------------------------------
+#
+# This is the deterministic alternative to a CodeBERT-embedding-based
+# near-duplicate check. That path was tried and abandoned: raw pretrained
+# CodeBERT embeddings, and a whitened variant computed from a 149-function
+# background corpus, both ranked a pair of semantically DIFFERENT
+# same-shaped functions (get_name/get_email-style getters) as MORE similar
+# than a genuine near-duplicate pair — verified empirically, not assumed.
+# Making that work properly needs a contrastive fine-tune trained
+# specifically against that failure mode, which is a multi-week effort with
+# its own labeled-dataset and validation requirements, not a 3-day feature.
+# See CODEBERT_DUPLICATE_DETECTION_PLAN.md in the repo root for the full
+# record. This check gets the actual common case — identical logic with
+# renamed variables (a "Type-2 clone" in the clone-detection literature) —
+# with certainty, no model, no threshold, no training data.
+
+
+class _IdentifierNormalizer(ast.NodeTransformer):
+    """
+    Renames every locally-bound identifier (parameters, assigned variables,
+    loop targets) to a canonical VAR{n} name based on order of first
+    appearance, and the function's own name to a fixed placeholder. Two
+    functions with identical structure but different names then produce an
+    identical ast.dump().
+
+    Deliberately does NOT touch: builtin/global names that are never
+    assigned locally (`len`, `range`, an imported helper — these carry real
+    meaning, not just a naming choice), attribute names (`.append` vs
+    `.push` are genuinely different operations), string/numeric literals,
+    or `except ... as name:` bindings (a known, accepted gap — see the
+    class docstring's sibling checks in this file for the same "conservative
+    over clever" convention).
+
+    Whether a Name is "locally bound" is inferred from the order nodes are
+    visited (Store/Del context = bind it now; Load context = rename it only
+    if already bound). This matches execution order for ordinary
+    straight-line and control-flow code, which is what this check targets —
+    it is a heuristic, not real scope/data-flow analysis, consistent with
+    every other AST heuristic in this file.
+    """
+
+    def __init__(self):
+        self.mapping: Dict[str, str] = {}
+        self.counter = 0
+
+    def _canonical(self, name: str) -> str:
+        if name not in self.mapping:
+            self.mapping[name] = f"VAR{self.counter}"
+            self.counter += 1
+        return self.mapping[name]
+
+    def _normalize_args(self, args: ast.arguments) -> None:
+        for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs):
+            arg.arg = self._canonical(arg.arg)
+        if args.vararg:
+            args.vararg.arg = self._canonical(args.vararg.arg)
+        if args.kwarg:
+            args.kwarg.arg = self._canonical(args.kwarg.arg)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+        # Map the function's own name to FUNC too, not just node.name, so a
+        # recursive self-call (`return f(n - 1)`) normalizes the same way
+        # a parameter or local variable would.
+        self.mapping[node.name] = "FUNC"
+        node.name = "FUNC"
+        self._normalize_args(node.args)
+        self.generic_visit(node)
+        return node
+
+    visit_AsyncFunctionDef = visit_FunctionDef  # type: ignore[assignment]
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            node.id = self._canonical(node.id)
+        elif node.id in self.mapping:
+            node.id = self.mapping[node.id]
+        return node
+
+
+def _statement_count(node: ast.AST) -> int:
+    """Total statements anywhere inside node, not just its direct body —
+    len(node.body) undercounts a guard-clause function like
+    `if n <= 1: return 1` / `return n * f(n - 1)` as 2 statements when it
+    has 3 (matches _check_long_functions's counting method)."""
+    return sum(1 for n in ast.walk(node) if isinstance(n, ast.stmt) and n is not node)
+
+
+def _check_near_duplicate_functions(tree: ast.AST) -> List[Issue]:
+    issues: List[Issue] = []
+    functions = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _statement_count(node) >= _MIN_STMTS_FOR_NEAR_DUP
+    ]
+
+    signatures: Dict[str, Tuple[str, int]] = {}
+    for node in functions:
+        normalized = _IdentifierNormalizer().visit(copy.deepcopy(node))
+        signature = ast.dump(normalized)
+
+        if signature in signatures:
+            first_name, first_line = signatures[signature]
+            issues.append(Issue(
+                line=node.lineno,
+                severity=IssueSeverity.INFO,
+                category=IssueCategory.SMELL,
+                rule="SMELL012",
+                message=(
+                    f"Function '{node.name}' has the same logic as '{first_name}' "
+                    f"(line {first_line}) — the only difference is variable or "
+                    "parameter names. Consider consolidating into one function."
+                ),
+            ))
+        else:
+            signatures[signature] = (node.name, node.lineno)
+
     return issues

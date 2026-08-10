@@ -1,145 +1,97 @@
-# CodeBERT near-duplicate detection — 3-day implementation plan
+# CodeBERT near-duplicate detection — attempted and abandoned
 
-**Status:** Not started. Written 10 August 2026, for later execution — deployment
-and the AI provider issue take priority first (see "Priority note" at the end).
-
----
-
-## Why CodeBERT, and why only this use case
-
-Considered CodeBERT and CodeT5 for expanding ACRR's ML beyond the existing
-RandomForest complexity predictor. Conclusion: **do not** use either for
-smell/bug classification or generation — that duplicates the existing Gemini
-AI layer with a strictly weaker, older model (CodeBERT: 125M params, 2020;
-CodeT5-base: 220M, 2021, vs. a modern general-purpose LLM already wired in).
-Building a properly-validated classifier to this project's own bar (the bar
-the RandomForest complexity model already proved necessary: 149 individually
-verified algorithms, contradiction checks, nested CV, an adversarial audit
-tool) is a multi-week effort for a capability that already exists.
-
-**The one legitimate exception**: semantic near-duplicate detection.
-`SMELL006` (in `backend/app/review/smells.py`) currently only catches
-*exact* textual duplicate blocks. It misses semantically-equivalent code that
-differs by variable renaming or statement reordering. CodeBERT's pretrained
-embeddings (no fine-tuning needed) are the standard tool for this in the
-literature (BigCloneBench, POJ-104 clone detection) — inference-only, no
-dataset to collect or validate.
-
-**Why CodeBERT over CodeT5 for this specific task**: CodeBERT is
-encoder-only, so you get a fixed-size embedding directly with no unused
-decoder weights to load. Its MLM + replaced-token-detection pretraining on
-bimodal NL-PL pairs is built for producing a similarity-meaningful embedding
-space. CodeT5's identifier-aware denoising objective targets
-reconstruction/generation, not similarity. CodeT5 would be the right choice
-if the task were generation (fixes, explanations) — but that task is the one
-already ruled out as duplicating Gemini.
-
-**Scope limit, stated plainly**: this only compares functions *within a
-single submitted snippet* against each other. ACRR analyzes one paste at a
-time with no persistent corpus, so there's no cross-session or
-whole-codebase duplicate detection here. Value is real but narrow: useful
-when someone pastes multiple functions and two are near-identical, useless
-on a single-function submission (the common case).
+**Status: ABANDONED, replaced with a deterministic check.** This file
+originally held a 3-day implementation plan (written 10 August 2026). Day 1
+was executed the same day and the plan's core technical premise failed
+empirical testing. Kept as a record of what was tried and why, so this
+isn't re-attempted the same way later without knowing it already failed.
 
 ---
 
-## Day 1 — Core detection module (no API yet)
+## What was tried
 
-**Goal**: `find_near_duplicates()` works correctly in isolation.
+Per the original plan: `microsoft/codebert-base`, no fine-tuning, mean-pooled
+embeddings, cosine similarity threshold. `torch` + `transformers` installed
+(CPU-only wheel), the model downloaded and loaded successfully (124.6M
+params, confirmed correct size), and a `duplicate_detector.py` module was
+built with a lazy-loading singleton pattern matching `complexity_predictor.py`.
 
-1. Add `torch` (CPU-only wheel) and `transformers` to `requirements.txt`, in
-   a clearly separate, commented section (why they're heavy — mirrors how
-   `google-genai` is documented as optional-at-runtime).
-2. New file `backend/app/ml/duplicate_detector.py`:
-   - Lazy-load `microsoft/codebert-base` tokenizer + model as a
-     module-level singleton on first call — same `_get_model()` caching
-     pattern already used in `complexity_predictor.py`. Must NOT load at
-     process startup (`--preload` in gunicorn already loads the RandomForest
-     there; adding ~500MB more at startup on a memory-constrained instance
-     is the wrong default).
-   - `embed_function(code: str) -> np.ndarray` — tokenize, forward pass,
-     mean-pool the last hidden state over the attention mask (not a raw
-     mean — padding tokens would dilute the vector).
-   - `find_near_duplicates(functions, threshold=0.92) -> List[DuplicatePair]`
-     — pairwise cosine similarity across all functions in one submission.
-     Skip functions under ~3 statements (trivially "similar" one-line
-     getters/setters would otherwise flood results with noise).
-3. Calibrate the threshold by hand against a handful of deliberately
-   constructed cases: a true near-duplicate (renamed variables, reordered
-   independent statements) vs. two genuinely different but shaped-alike
-   functions (e.g. two different one-line property getters). **This is
-   spot-checking, not formal validation** — say so explicitly in the code
-   comment. No nested CV, no audit tool, unlike the complexity model.
-4. Unit tests mirroring `tests/test_ai_client.py`'s shape: pure-function
-   tests for the similarity math, integration test skipped (not failed) if
-   `torch` isn't installed — same "skip rather than fail when tool not
-   installed" convention `test_review_engine.py` already uses for
-   `flake8`/`bandit`.
+## Why it failed
 
-## Day 2 — API + graceful degradation
+Calibrated against hand-constructed test cases before committing to a
+threshold — standard practice, and the same discipline this project's
+other ML work has always used. Result:
 
-**Goal**: a working endpoint that behaves correctly whether or not the
-model is available.
+```
+--- RAW cosine similarity ---
+1.0000  identical copy
+0.9966  true near-duplicate (renamed vars, reordered)
+0.9968  different, shaped-alike getters      <- ranked ABOVE the real duplicate
+0.9704  unrelated functions
+```
 
-1. New Pydantic models in `backend/app/models.py`: `DuplicatePair` (two
-   function names, line numbers, similarity score), `DuplicateCheckResponse`.
-2. New endpoint `POST /duplicates` in `backend/app/main.py` — kept separate
-   from `/review` and `/refactor`, not bolted onto either, since it's an
-   unrelated, optional, heavier operation.
-3. Graceful degradation, matching the AI layer's exact pattern: catch
-   `ImportError` / timeout / model-load failure at call time, return
-   `available: false` rather than a 500. Never let a missing dependency take
-   the endpoint down.
-4. Wire into `/health` so it's visible which analysers are actually usable
-   — consistent with the existing convention there.
-5. Backend tests: syntax gate, graceful-degrade path, and a real detection
-   test on a crafted duplicate pair (two functions, same logic, renamed
-   variables) — the test that actually proves the feature works, not just
-   that it doesn't crash.
+Every pair scored 0.97+, with no usable gap between "duplicate" and
+"unrelated" — and the ranking was actively backwards: two semantically
+*different* functions (`get_name`/`get_email`, same shape) scored higher
+than a genuine near-duplicate pair. Tried `[CLS]`-token pooling instead of
+mean-pooling — same failure, same backwards ranking (0.9990 vs 0.9981).
 
-## Day 3 — Frontend + end-to-end verification + docs
+This is a known, documented property of raw pretrained BERT-family
+embeddings called **anisotropy**: without a contrastive fine-tuning
+objective, embeddings cluster in a narrow cone and cosine similarity stops
+meaningfully separating anything. It's why the clone-detection literature
+(BigCloneBench, POJ-104) fine-tunes CodeBERT for the task rather than using
+it zero-shot — this plan's premise that pretrained embeddings would work
+without fine-tuning was wrong.
 
-**Goal**: a user can click a button and see real results, full suite green.
+**Also tried, also failed**: BERT-whitening (Su et al. 2021) — a
+computationally cheap, unsupervised post-processing step, reusing
+`corpus.py`'s 149 real algorithms as a background set (needs no labeled
+pairs, unlike fine-tuning). Result:
 
-1. Frontend: a third button — **"Check for duplicates,"** deliberately not
-   labeled "Use ML" or similar. The RandomForest complexity model already
-   runs ML on every request by default; a button literally called "ML" next
-   to that would confuse users about what's actually being toggled.
-2. Loading state that says up front "first check may take longer while the
-   model loads" — cold-start on a memory/CPU-constrained free-tier host
-   (model download + load) is realistically 10-30+ seconds, and silently
-   hanging there reads as broken.
-3. Full verification: `pytest`, a `verify_changes.py`-style end-to-end
-   addition, one manual test against real multi-function code with an
-   actual near-duplicate in it.
-4. Update `README.md` / `HANDOFF.md`: document the feature as
-   **experimental**, state the threshold is hand-calibrated not validated,
-   and record the deployment decision explicitly — recommend keeping it
-   env-gated (installed/enabled only where chosen) rather than forced onto
-   a memory-constrained free-tier instance, given HANDOFF.md already flags
-   memory as tight for the *existing*, much smaller RandomForest.
+```
+--- WHITENED cosine similarity ---
+1.0000  identical copy
+0.2481  true near-duplicate
+0.7843  different, shaped-alike getters      <- same backwards ranking
+0.2143  unrelated functions
+```
 
----
+Whitening separated "unrelated" from everything else, but the same
+backwards ranking survived. Likely because 149 background samples for a
+768-dimensional embedding space is a 5x underdetermined covariance
+estimate — but there's no way to know whether more background data would
+actually fix the specific failure mode without testing it, and that's
+exactly the kind of unresolved uncertainty this project doesn't ship on.
 
-## Risks that could push this past 3 days
+## What it would take to actually fix (documented, not pursued)
 
-- **Environment friction.** The same week this plan was written hit two
-  unrelated SSL/cert surprises on this machine (`git push`, Gemini
-  connectivity). A ~2GB `torch` install is exactly the kind of dependency
-  that surfaces a new environment quirk. Budget slack in Day 1, don't
-  assume a clean install.
-- **Threshold tuning taking longer than expected** if the first few
-  hand-picked test cases don't cleanly separate true/false positives — the
-  one genuinely open-ended part of the plan.
+1. **More background data for whitening** — thousands of diverse functions
+   (unlabeled, so cheaper than fine-tuning data) — untried, no guarantee.
+2. **An existing clone-detection fine-tune from HF Hub** — untried; risk of
+   not transferring from Java-heavy benchmarks to short Python functions.
+3. **Fine-tune CodeBERT ourselves with a contrastive objective**, and
+   critically, with **deliberate hard negatives** — same-shaped,
+   semantically-different pairs like the getters case, since that's the
+   exact failure mode observed twice. This is the literature-standard fix.
+   Needs real labeled pairs, held-out grouped validation (same leakage
+   discipline as `evaluate.py`/`audit.py`), and an adversarial calibration
+   check before trusting it — a multi-week effort, not a 3-day one.
 
----
+None of these were pursued. `torch`/`transformers` were uninstalled and
+never made it into `requirements.txt`.
 
-## Priority note (why this hasn't been started)
+## What replaced it
 
-Written the same day as: (a) fixing an SSL certificate issue blocking the
-existing Gemini AI layer, and (b) discovering the configured Gemini API key
-has zero quota allocated on its project. Deployment (Render + Vercel) is
-also still pending, with an imminent ship target. This plan is additional
-scope competing with both of those. Recommended sequencing: resolve the AI
-provider situation and ship the app first; build this once there's a
-concrete case of a missed duplicate in real usage, not speculatively.
+`SMELL012` in `backend/app/review/smells.py` — deterministic identifier
+normalization (Type-2 clone detection): rename every locally-bound
+variable/parameter to a canonical `VAR{n}` placeholder by order of first
+appearance, then compare `ast.dump()` of the normalized function bodies for
+exact matches. Zero ML, zero training data, zero threshold to calibrate.
+Verified against the exact same calibration cases that broke CodeBERT —
+correct on all of them, including the backwards-ranking getters case.
+
+Only catches renamed-variable duplicates with identical statement order
+(true Type-2 clones), not reordered-statement duplicates — a smaller scope
+than the original CodeBERT plan aimed for, delivered with certainty instead
+of a plausible-sounding number that didn't hold up.
