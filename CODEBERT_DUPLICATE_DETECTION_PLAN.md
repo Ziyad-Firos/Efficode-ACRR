@@ -64,13 +64,37 @@ estimate — but there's no way to know whether more background data would
 actually fix the specific failure mode without testing it, and that's
 exactly the kind of unresolved uncertainty this project doesn't ship on.
 
+## Existing HF Hub fine-tunes — also checked, also a dead end
+
+Investigated two candidates rather than leave this untested:
+
+- **`Lazyhope/python-clone-detection`** (Python-specific, PoolC dataset) —
+  requires `trust_remote_code=True` to load: executes arbitrary custom
+  Python from a small community repo at model-load time. Stopped before
+  running it; that's a real supply-chain trust decision, not something to
+  wave through to save time on an experiment. No accuracy/F1 reported on
+  the model card either, independent of the trust question.
+- **`mrm8488/codebert-finetuned-clone-detection`** (BigCloneBench) — worse
+  than expected. Loading it the "obvious" way (`AutoModel.from_pretrained`)
+  *appeared* to succeed but silently returned a **100% randomly-initialized
+  model** — every pretrained weight reported `MISSING` in the load report,
+  which nothing surfaces as an error. Loading it correctly as a classifier
+  (`AutoModelForSequenceClassification`) hard-crashed: `classifier.dense.weight`
+  expects a 1536-dim input against the standard class's 768, meaning the
+  real architecture concatenates two separately-encoded embeddings before
+  classifying — a custom setup with no loadable code published for it.
+  Not usable through any standard `transformers` call.
+
+Neither candidate could even be evaluated for accuracy — both failed before
+that question was reachable, for two different reasons (trust, architecture
+mismatch). This closes out "check for an existing fine-tune first" as a
+real, evidenced dead end, not just an untried option.
+
 ## What it would take to actually fix (documented, not pursued)
 
 1. **More background data for whitening** — thousands of diverse functions
    (unlabeled, so cheaper than fine-tuning data) — untried, no guarantee.
-2. **An existing clone-detection fine-tune from HF Hub** — untried; risk of
-   not transferring from Java-heavy benchmarks to short Python functions.
-3. **Fine-tune CodeBERT ourselves with a contrastive objective**, and
+2. **Fine-tune CodeBERT ourselves with a contrastive objective**, and
    critically, with **deliberate hard negatives** — same-shaped,
    semantically-different pairs like the getters case, since that's the
    exact failure mode observed twice. This is the literature-standard fix.
