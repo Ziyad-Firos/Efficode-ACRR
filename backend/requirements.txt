@@ -35,6 +35,11 @@ numpy>=1.26.0
 # not support the new AQ-format API keys.
 google-genai>=1.0.0
 httpx>=0.27.0
+# Groq is tried before Gemini (see ai_client.py's module docstring) — added
+# after the configured Gemini project turned out to have zero quota
+# allocated, and a second Gemini key hit a harder project-level access
+# denial. Both were independent of anything in this codebase.
+groq>=1.0.0
 
 # On some Windows networks (TLS-inspecting corporate proxy, etc.) Python's
 # bundled certifi CA list doesn't include the intercepting root cert, so

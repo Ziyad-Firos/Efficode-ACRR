@@ -130,6 +130,7 @@ def test_markdown_fenced_json_still_parses():
 # ---------------------------------------------------------------------------
 
 def test_no_provider_configured_degrades_cleanly(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
     suggestions, concerns, available = asyncio.run(
@@ -138,6 +139,60 @@ def test_no_provider_configured_degrades_cleanly(monkeypatch):
     assert suggestions == []
     assert concerns == []
     assert available is False
+
+
+def test_groq_tried_before_gemini(monkeypatch):
+    """Groq is the currently-verified-working provider (see the module
+    docstring) -- it must be tried first when both keys are configured, not
+    just whichever happens to be listed first in the environment."""
+    import app.refactor.ai_client as ai_client
+
+    monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+
+    called = []
+
+    async def fake_groq(prompt, timeout):
+        called.append("groq")
+        return json.dumps({"suggestions": [], "correctness_concerns": ["from groq"]})
+
+    async def fake_gemini(prompt, timeout):
+        called.append("gemini")
+        return json.dumps({"suggestions": [], "correctness_concerns": ["from gemini"]})
+
+    monkeypatch.setattr(ai_client, "_call_groq", fake_groq)
+    monkeypatch.setattr(ai_client, "_call_gemini", fake_gemini)
+
+    suggestions, concerns, available = asyncio.run(
+        get_ai_suggestions(original_code="def f(): return 1\n", rule_refactored_code="def f(): return 1\n")
+    )
+    assert available is True
+    assert concerns == ["from groq"]
+    assert called == ["groq"]  # gemini never called -- groq succeeded first
+
+
+def test_falls_through_to_gemini_when_groq_fails(monkeypatch):
+    import app.refactor.ai_client as ai_client
+
+    monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+
+    async def failing_groq(prompt, timeout):
+        raise ValueError("quota exceeded")
+
+    async def working_gemini(prompt, timeout):
+        return json.dumps({"suggestions": [], "correctness_concerns": ["from gemini"]})
+
+    monkeypatch.setattr(ai_client, "_call_groq", failing_groq)
+    monkeypatch.setattr(ai_client, "_call_gemini", working_gemini)
+
+    suggestions, concerns, available = asyncio.run(
+        get_ai_suggestions(original_code="def f(): return 1\n", rule_refactored_code="def f(): return 1\n")
+    )
+    assert available is True
+    assert concerns == ["from gemini"]
 
 
 if __name__ == "__main__":

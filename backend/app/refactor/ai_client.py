@@ -1,8 +1,8 @@
 """
 refactor/ai_client.py — AI enhancement layer.
 
-Calls Google Gemini (free tier) or a local Ollama model to get
-deeper refactoring suggestions beyond what the rule engine can do.
+Calls Google Gemini, Groq, or a local Ollama model to get deeper
+refactoring suggestions beyond what the rule engine can do.
 
 Critical design decisions:
   1. NEVER blocks the response — if the AI call fails for any reason
@@ -19,8 +19,17 @@ Critical design decisions:
   4. API key is read from environment — never hardcoded. If the key
      is not set, the AI layer is skipped silently.
 
+Provider order: Groq, then Gemini, then Ollama. Groq is tried first
+because it is the currently-verified-working provider — Gemini is left in
+place and tried second for whoever gets that project's access sorted out,
+rather than removed. Every configured provider is tried in order until one
+succeeds; a provider that fails (bad key, quota, network) just falls
+through to the next one, not to the caller as an error.
+
 Environment variables:
-  GEMINI_API_KEY     — Google Gemini API key (preferred)
+  GROQ_API_KEY       — Groq API key (tried first)
+  GROQ_MODEL         — model name (default: llama-3.3-70b-versatile)
+  GEMINI_API_KEY     — Google Gemini API key
   OLLAMA_BASE_URL    — e.g. http://localhost:11434 (for local Ollama)
   OLLAMA_MODEL       — model name, e.g. codellama (default: codellama)
   AI_TIMEOUT         — max seconds to wait for AI response (default: 15)
@@ -127,6 +136,40 @@ async def _call_gemini(prompt: str, timeout: int) -> str:
             ),
         )
         return response.text
+
+    return await asyncio.wait_for(
+        loop.run_in_executor(None, _sync_call),
+        timeout=timeout,
+    )
+
+
+# ── Groq client ───────────────────────────────────────────────────────────
+
+async def _call_groq(prompt: str, timeout: int) -> str:
+    """Call the Groq API using the groq SDK. Returns raw response text."""
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not set")
+
+    try:
+        from groq import Groq  # type: ignore
+    except ImportError:
+        raise ImportError("groq not installed. Run: pip install groq")
+
+    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    loop = asyncio.get_event_loop()
+
+    def _sync_call() -> str:
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+        return completion.choices[0].message.content or ""
 
     return await asyncio.wait_for(
         loop.run_in_executor(None, _sync_call),
@@ -265,8 +308,11 @@ async def get_ai_suggestions(
     timeout = _DEFAULT_TIMEOUT
     prompt  = _build_user_prompt(original_code, rule_refactored_code)
 
-    # Try Gemini first, then Ollama, then gracefully degrade
+    # Try Groq first (currently the verified-working provider), then
+    # Gemini, then Ollama, then gracefully degrade. See module docstring.
     providers = []
+    if os.getenv("GROQ_API_KEY", "").strip():
+        providers.append(("groq", _call_groq))
     if os.getenv("GEMINI_API_KEY", "").strip():
         providers.append(("gemini", _call_gemini))
     if os.getenv("OLLAMA_BASE_URL", "").strip():
