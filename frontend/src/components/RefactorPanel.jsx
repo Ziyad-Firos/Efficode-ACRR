@@ -175,8 +175,25 @@ export default function RefactorPanel({ result, loading }) {
                     ? <span className={styles.validated}>✅ Valid Python</span>
                     : <span className={styles.invalid}>⚠️ Could not validate</span>
                   }
+                  {/* verified is Optional: True/False/None. None means "not
+                      checked" (e.g. multi-function file, renamed function) —
+                      not evidence of correctness either way, so it renders
+                      no badge rather than a misleading neutral one. */}
+                  {s.verified === true && (
+                    <span className={styles.verified} title={s.verification_note}>
+                      ✅ Behaviour verified
+                    </span>
+                  )}
+                  {s.verified === false && (
+                    <span className={styles.notVerified} title={s.verification_note}>
+                      ❌ Behaviour differs from original
+                    </span>
+                  )}
                 </div>
                 <p className={styles.aiExplanation}>{s.explanation}</p>
+                {s.verified === false && s.verification_note && (
+                  <p className={styles.verificationWarning}>{s.verification_note}</p>
+                )}
                 {s.diff && (
                   <pre className={styles.aiDiff}>{s.diff}</pre>
                 )}

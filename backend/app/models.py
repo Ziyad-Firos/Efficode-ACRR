@@ -115,6 +115,18 @@ class AISuggestion(BaseModel):
     explanation: str
     diff: str = Field(..., description="Unified diff of the suggestion")
     validated: bool = Field(..., description="True if ast.parse passed on the suggested code")
+    verified: Optional[bool] = Field(
+        None,
+        description="True if differential testing (app/verify/) confirmed the suggestion "
+                     "behaves the same as the original on generated inputs; False if a "
+                     "genuine behavioural disagreement was found. None if verification "
+                     "wasn't attempted (ambiguous which function to test, or verification "
+                     "itself failed to run) — None is NOT evidence of correctness.",
+    )
+    verification_note: Optional[str] = Field(
+        None,
+        description="Why verification wasn't attempted, or what disagreed, when verified is not True.",
+    )
 
 
 class FunctionComplexity(BaseModel):

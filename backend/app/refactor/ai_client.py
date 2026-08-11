@@ -13,6 +13,16 @@ Critical design decisions:
      being included in the response. If it fails to parse, the
      suggestion is silently dropped. Broken code never reaches the user.
 
+  2.5. A syntactically valid suggestion is then differentially tested
+     against the original (app/verify/differential.py) when the target
+     function is unambiguous — see _verify_suggestion below. This is the
+     upgrade the CodeT5+ plan called out as valuable on its own, before
+     any new model exists: "validated" used to mean only "it parses";
+     "verified" means it was actually run and produced the same results
+     as the original on generated inputs. A suggestion can be
+     validated=True, verified=False — syntactically fine, semantically
+     wrong — which ast.parse alone could never catch.
+
   3. The prompt asks for structured JSON output, not free-form prose.
      This makes responses programmatically parseable without regex hacks.
 
@@ -37,18 +47,27 @@ Environment variables:
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
 import os
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from app.models import AISuggestion
 from app.parser import is_valid_python
 from app.refactor.diff import make_diff
+from app.verify.differential import verify_equivalent
 
 logger = logging.getLogger("acrr.refactor.ai_client")
+
+# Modest trial count/timeout specifically because this runs inside a live
+# HTTP request (up to 3 suggestions, each needing 2 sandboxed subprocess
+# calls per trial). verify/differential.py's own defaults (heavier, used
+# when latency isn't a live-request constraint) are not used here on purpose.
+_VERIFY_TRIALS = 8
+_VERIFY_TIMEOUT = 2.0
 
 _DEFAULT_TIMEOUT = int(os.getenv("AI_TIMEOUT", "15"))
 
@@ -205,6 +224,68 @@ async def _call_ollama(prompt: str, timeout: int) -> str:
 
 # ── Response parser ───────────────────────────────────────────────────────
 
+def _verify_suggestion(original_code: str, candidate_code: str) -> Tuple[Optional[bool], Optional[str]]:
+    """
+    Differentially test a syntactically-valid suggestion against the
+    original code (see app/verify/differential.py). Returns (verified, note):
+
+      verified=True   -- behaviourally equivalent across every generated trial
+      verified=False  -- a genuine disagreement was found
+      verified=None   -- not attempted (ambiguous target function, or the
+                          verification machinery itself failed). None is
+                          NOT evidence of correctness either way -- it
+                          means the question wasn't asked, not that the
+                          answer was yes.
+
+    Deliberately conservative about WHICH function to test: only when the
+    original code defines exactly one top-level function, and the
+    candidate defines a function with that same name. A multi-function
+    file, or a suggestion that renames the function, is left unverified
+    rather than guessed at.
+    """
+    try:
+        orig_tree = ast.parse(original_code)
+    except SyntaxError:
+        return None, "original code does not parse"
+
+    orig_functions = [n.name for n in orig_tree.body
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if len(orig_functions) != 1:
+        return None, f"expected exactly 1 top-level function in the original, found {len(orig_functions)}"
+    func_name = orig_functions[0]
+
+    try:
+        cand_tree = ast.parse(candidate_code)
+    except SyntaxError:
+        return None, "candidate does not parse"  # shouldn't happen -- already validated by is_valid_python
+
+    cand_functions = {n.name for n in ast.walk(cand_tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if func_name not in cand_functions:
+        return None, f"candidate does not define '{func_name}' -- can't verify a renamed function"
+
+    try:
+        result = verify_equivalent(
+            original_code, candidate_code, func_name,
+            trials=_VERIFY_TRIALS, timeout=_VERIFY_TIMEOUT,
+        )
+    except Exception as exc:  # noqa: BLE001 -- verification failing must never break the response
+        logger.warning("Verification of AI suggestion failed to run: %s", exc)
+        return None, "verification did not complete"
+
+    if result.trials_run == 0:
+        return None, result.note or "no test cases could be generated"
+
+    if result.equivalent:
+        return True, f"{result.trials_agreed}/{result.trials_run} generated trials agreed"
+
+    note = f"{result.trials_agreed}/{result.trials_run} trials agreed"
+    if result.disagreements:
+        d = result.disagreements[0]
+        note += f" — disagreed on {d.call_expr}: original={d.original_outcome}, candidate={d.candidate_outcome}"
+    return False, note
+
+
 def _parse_suggestions(items, original_code: str) -> List[AISuggestion]:
     """Validate a raw suggestions array into AISuggestion objects. Suggestions
     with invalid Python (or missing required fields) are silently dropped."""
@@ -226,12 +307,27 @@ def _parse_suggestions(items, original_code: str) -> List[AISuggestion]:
         if not valid:
             logger.info("AI suggestion dropped — invalid Python: %.80s…", code)
 
+        # THE UPGRADE (this session): validated only means "it parses" --
+        # verified means "it was actually run and behaves the same". A
+        # suggestion can be validated=True and verified=False at the same
+        # time; that combination means "syntactically fine, semantically
+        # wrong", which is exactly what a user needs to know before
+        # applying it.
+        verified: Optional[bool] = None
+        verification_note: Optional[str] = None
+        if valid:
+            verified, verification_note = _verify_suggestion(original_code, code)
+            if verified is False:
+                logger.info("AI suggestion failed verification: %s", verification_note)
+
         diff = make_diff(original_code, code) if valid else ""
 
         suggestions.append(AISuggestion(
             explanation=explanation,
             diff=diff,
             validated=valid,
+            verified=verified,
+            verification_note=verification_note,
         ))
 
     return suggestions

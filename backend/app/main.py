@@ -240,6 +240,7 @@ def refactor():
     changes_count = len([r for r in rule_result.applied_rules if r.applied])
     suggestion_count = len([r for r in rule_result.applied_rules if not r.applied])
     ai_count = len([s for s in ai_suggestions if s.validated])
+    verified_count = len([s for s in ai_suggestions if s.verified is True])
     summary_parts = []
     if changes_count:
         summary_parts.append(
@@ -248,6 +249,7 @@ def refactor():
     if ai_count:
         summary_parts.append(
             f"{ai_count} AI suggestion{'s' if ai_count != 1 else ''} available"
+            + (f" ({verified_count} behaviourally verified)" if verified_count else "")
         )
     if suggestion_count:
         summary_parts.append(

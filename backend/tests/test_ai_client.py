@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.refactor.ai_client import (   # noqa: E402
     _parse_ai_response,
+    _verify_suggestion,
     get_ai_suggestions,
 )
 
@@ -123,6 +124,77 @@ def test_markdown_fenced_json_still_parses():
     }) + "\n```"
     _, concerns = _parse_ai_response(raw, original_code="")
     assert concerns == ["flagged despite fences"]
+
+
+# ---------------------------------------------------------------------------
+# _verify_suggestion — behavioural verification of an AI suggestion
+# ---------------------------------------------------------------------------
+# These spawn real subprocesses via app/verify -- no API key needed, since
+# they test the verification step on hand-written original/candidate pairs,
+# not a live model response. Slower than pure-function tests for the same
+# reason tests/test_sandbox.py and tests/test_differential.py are.
+
+def test_verify_suggestion_confirms_correct_refactoring():
+    original = (
+        "def common_elements(list_a, list_b):\n"
+        "    result = []\n"
+        "    for x in list_a:\n"
+        "        if x in list_b:\n"
+        "            result.append(x)\n"
+        "    return result\n"
+    )
+    candidate = (
+        "def common_elements(list_a, list_b):\n"
+        "    lookup = set(list_b)\n"
+        "    return [x for x in list_a if x in lookup]\n"
+    )
+    verified, note = _verify_suggestion(original, candidate)
+    assert verified is True
+    assert "agreed" in note
+
+
+def test_verify_suggestion_rejects_wrong_refactoring():
+    """A suggestion that parses fine but changes behaviour must come back
+    verified=False, not just silently accepted because it's valid Python."""
+    original = (
+        "def find_pair(nums, target):\n"
+        "    for i in range(len(nums)):\n"
+        "        for j in range(len(nums)):\n"
+        "            if i != j and nums[i] + nums[j] == target:\n"
+        "                return (i, j)\n"
+        "    return None\n"
+    )
+    wrong_candidate = (
+        "def find_pair(nums, target):\n"
+        "    seen = {}\n"
+        "    for i, n in enumerate(nums):\n"
+        "        complement = target - n\n"
+        "        if complement in seen:\n"
+        "            return (seen[complement], i)\n"
+        "        seen[n] = i + 1\n"  # bug: off by one
+        "    return None\n"
+    )
+    verified, note = _verify_suggestion(original, wrong_candidate)
+    assert verified is False
+    assert "disagreed" in note
+
+
+def test_verify_suggestion_skips_multi_function_original():
+    """Ambiguous which function the suggestion is refactoring -- must
+    decline to guess, not silently pick one."""
+    original = "def f():\n    return 1\n\ndef g():\n    return 2\n"
+    candidate = "def f():\n    return 1\n\ndef g():\n    return 2\n"
+    verified, note = _verify_suggestion(original, candidate)
+    assert verified is None
+    assert "found 2" in note
+
+
+def test_verify_suggestion_skips_renamed_function():
+    original = "def add(a, b):\n    return a + b\n"
+    candidate = "def sum_two(a, b):\n    return a + b\n"  # renamed
+    verified, note = _verify_suggestion(original, candidate)
+    assert verified is None
+    assert "does not define" in note
 
 
 # ---------------------------------------------------------------------------
