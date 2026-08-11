@@ -86,6 +86,14 @@ def validate_and_build(instances_per_family: int = 25, write: bool = True) -> di
             "before": pair.before,
             "after": pair.after,
             "function_name": pair.function_name,
+            "custom_values": pair.custom_values,  # e.g. naive_fib_to_memo's small
+            # int values -- without this, a consumer re-verifying a saved row
+            # (see finetune_codet5p.ipynb's gate-checking cell) would fall back
+            # to generic edge cases and could blow the sandbox timeout/recursion
+            # limit on a family that needs constrained values. Not currently
+            # triggered (neither held-out family needs custom_values today) but
+            # a real, latent gap if that ever changes -- fixed rather than left
+            # as a footnote.
             "split": "holdout" if pair.family in holdout else "train",
             "verified_trials": f"{eq.trials_agreed}/{eq.trials_run}",
             "speedup_measured": speed.measured,
