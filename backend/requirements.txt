@@ -50,6 +50,15 @@ groq>=1.0.0
 # certifi's bundle. No-op on a network that doesn't have this problem.
 pip-system-certs>=4.0
 
+# ── Verification sandbox (app/verify/) ─────────────────────────────────────
+# Differential-testing candidate refactorings means EXECUTING submitted
+# code — the one deliberate exception to "nothing submitted is ever
+# executed". psutil provides the cross-platform memory-limit enforcement
+# (resource.RLIMIT_AS is POSIX-only; psutil works identically on Windows,
+# where this is developed, and Linux, where this deploys). See
+# app/verify/sandbox.py's module docstring for the full reasoning.
+psutil>=5.9.0
+
 # ── Production server ─────────────────────────────────────────────────────
 # Flask's built-in server is single-threaded and explicitly not for
 # production. gunicorn is what Procfile/render.yaml invoke.
