@@ -29,7 +29,17 @@ KIND_UNKNOWN = "unknown"
 
 _STRING_METHODS = {"join", "split", "strip", "lstrip", "rstrip", "upper", "lower",
                     "replace", "startswith", "endswith", "format", "encode"}
-_DICT_METHODS = {"get", "keys", "values", "items", "pop", "setdefault", "update"}
+# "pop" is deliberately NOT dict-only -- list.pop() and dict.pop(key) are
+# both real. It used to live only in _DICT_METHODS, which made
+# `tasks.pop(0)` outvote a genuine `list(tasks)` signal on the same
+# parameter (dict methods are weighted +2, so one `.pop(0)` call beat the
+# list evidence outright) -- found building ml/t5/pairs.py's
+# pop0-to-deque template, where the parameter was misclassified as a dict
+# and fed dict values instead of lists. "get"/"setdefault" ARE dict-only
+# and stay exclusive; "pop" now votes for both, same weight either way,
+# so other evidence (list(x), iteration, subscripting) breaks the tie.
+_DICT_ONLY_METHODS = {"get", "setdefault", "keys", "values", "items", "update"}
+_LIST_METHODS = {"append", "extend", "insert", "remove", "pop"}
 _ARITH_OPS = (ast.Sub, ast.Add, ast.FloorDiv, ast.Div, ast.Mult, ast.Mod)
 
 
@@ -59,6 +69,18 @@ def infer_param_kind(func_node: ast.AST, param_name: str) -> str:
                 and node.iter.args and _is_param_ref(node.iter.args[0], param_name):
             votes[KIND_LIST] += 1
 
+        # sorted(param) / reversed(param) / list(param) / set(param), even
+        # OUTSIDE a for-loop's iter position, e.g. `ordered = sorted(nums)`.
+        # Found missing when a template hoisting a sort out of a loop --
+        # `ordered = sorted(nums)` used as a plain assignment, never
+        # `for x in sorted(nums)` -- left `nums` with zero votes at all,
+        # fell through to KIND_UNKNOWN, and got fed an int. Not a bug in
+        # the transformation being tested, a gap in this inference.
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in ("sorted", "reversed", "list", "set", "tuple") \
+                and node.args and _is_param_ref(node.args[0], param_name):
+            votes[KIND_LIST] += 1
+
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "len" \
                 and node.args and _is_param_ref(node.args[0], param_name):
             votes[KIND_LIST] += 1
@@ -71,8 +93,19 @@ def infer_param_kind(func_node: ast.AST, param_name: str) -> str:
             attr = node.func.attr
             if attr in _STRING_METHODS:
                 votes[KIND_STRING] += 2
-            elif attr in _DICT_METHODS:
+            if attr in _DICT_ONLY_METHODS:
                 votes[KIND_DICT] += 2
+            if attr in _LIST_METHODS:
+                votes[KIND_LIST] += 2
+            if attr == "pop":
+                # list.pop() and dict.pop(key) are both real -- "pop" votes
+                # for both (list already gets +2 above via _LIST_METHODS),
+                # weighted lower for dict so other evidence breaks the tie
+                # instead of "pop" alone deciding it. Found this backwards:
+                # pop used to sit only in dict methods at full weight, so
+                # `tasks.pop(0)` outvoted a genuine `list(tasks)` call on
+                # the same parameter and misclassified it as a dict.
+                votes[KIND_DICT] += 1
 
         if isinstance(node, ast.Compare):
             membership_ops = any(isinstance(o, (ast.In, ast.NotIn)) for o in node.ops)

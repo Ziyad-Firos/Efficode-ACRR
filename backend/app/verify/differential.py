@@ -106,6 +106,7 @@ def verify_equivalent(
     trials: int = DEFAULT_TRIALS,
     timeout: float = DEFAULT_TIMEOUT,
     seed: int = 1234,
+    custom_values: Optional[dict] = None,
 ) -> VerificationResult:
     """
     Run both versions on the same generated inputs; compare results.
@@ -115,6 +116,15 @@ def verify_equivalent(
     trial concurrently (thread pool — these are I/O-bound subprocess
     waits, not CPU-bound work, so no GIL contention) to roughly halve wall
     time versus running every sandbox call in sequence.
+
+    custom_values: {param_name: [values...]} overrides the auto-generated
+    edge cases for specific parameters. Needed for callers whose function
+    has an implicit input-size constraint the generic edge cases don't
+    know about — e.g. a naively-recursive Fibonacci blows its call stack
+    (or the sandbox timeout) on the generic KIND_INT edge case of 10**6,
+    which isn't a bug in the function, just a bad test input for THIS
+    shape of function. Added while building app/ml/t5/pairs.py, whose
+    templates include exactly that shape.
     """
     try:
         orig_tree = ast.parse(original)
@@ -132,12 +142,16 @@ def verify_equivalent(
 
     param_order = [a.arg for a in func_node.args.args]
     rng = random.Random(seed)
+    custom_values = custom_values or {}
 
     if not param_order:
         test_cases: List[list] = [[]]
     else:
         kinds = {p: infer_param_kind(func_node, p) for p in param_order}
-        inputs_per_param = {p: generate_edge_case_values(kinds[p], rng) for p in param_order}
+        inputs_per_param = {
+            p: custom_values[p] if p in custom_values else generate_edge_case_values(kinds[p], rng)
+            for p in param_order
+        }
         test_cases = build_test_cases(inputs_per_param, param_order, trials)
 
     if not test_cases:

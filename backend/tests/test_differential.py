@@ -87,6 +87,32 @@ def test_deliberately_wrong_refactoring_is_rejected():
     assert len(result.disagreements) > 0
 
 
+def test_custom_values_override_generic_edge_cases():
+    """A naively-recursive function blows up on the generic KIND_INT edge
+    case of 10**6 (stack depth / sandbox timeout) -- not a bug in the
+    function, just a bad test input for this shape. custom_values must let
+    a caller supply small values instead."""
+    original = (
+        "def fib(n):\n"
+        "    if n <= 1:\n"
+        "        return n\n"
+        "    return fib(n - 1) + fib(n - 2)\n"
+    )
+    candidate = (
+        "from functools import lru_cache\n\n"
+        "@lru_cache(maxsize=None)\n"
+        "def fib(n):\n"
+        "    if n <= 1:\n"
+        "        return n\n"
+        "    return fib(n - 1) + fib(n - 2)\n"
+    )
+    result = verify_equivalent(
+        original, candidate, "fib", trials=10,
+        custom_values={"n": [0, 1, 2, 5, 10, 15]},
+    )
+    assert result.equivalent is True, result.disagreements
+
+
 def test_unknown_function_name_fails_cleanly():
     result = verify_equivalent("def f(): return 1\n", "def f(): return 1\n", "g", trials=5)
     assert result.equivalent is False
