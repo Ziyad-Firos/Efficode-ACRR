@@ -64,6 +64,16 @@
 }
 
 .checkbox { accent-color: var(--accent); cursor: pointer; }
+.checkbox:disabled { cursor: not-allowed; }
+
+/* A controlLabel wrapping a disabled checkbox dims and swaps to the
+   not-allowed cursor across the whole label, not just the tiny checkbox
+   hitbox -- otherwise hovering the visible text gives no indication the
+   control can't currently be used. */
+.controlLabel:has(.checkbox:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .btn {
   padding: 7px 16px;

@@ -1,0 +1,13 @@
+# Optional dependencies for the local CodeT5+ refactoring feature
+# (app/ml/t5/refactor_model.py).
+#
+# NOT part of requirements.txt on purpose: `pip install -r requirements.txt`
+# alone must always produce a fully working app, with this feature simply
+# reporting unavailable (see codet5_available() / /health's
+# "codet5_available" field). Only install this file if you actually want
+# the local CodeT5+ toggle to work — it pulls in torch, which is a
+# multi-hundred-MB download on its own.
+#
+# Tested against: torch 2.13.0+cpu, transformers 5.15.0.
+torch
+transformers

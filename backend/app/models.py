@@ -57,6 +57,16 @@ class RefactorRequest(BaseModel):
     level: OptimizationLevel = Field(OptimizationLevel.MEDIUM,
                                      description="Refactoring aggressiveness")
     use_ai: bool = Field(True, description="Whether to call the AI enhancement layer")
+    use_codet5: bool = Field(
+        False,
+        description="Whether to also try the local, fine-tuned CodeT5+ model. Off by "
+                     "default: it's an experimental, opt-in feature (34% differential-"
+                     "verification pass rate as of its introduction -- below the plan's "
+                     "95% go/no-go bar), only safe to expose because every generation is "
+                     "independently re-verified before being returned, same as AI "
+                     "suggestions. Silently ignored (no error) if the model isn't "
+                     "installed/downloaded -- check codet5_available in the response.",
+    )
 
     @field_validator("code")
     @classmethod
@@ -169,6 +179,35 @@ class PerformanceComparison(BaseModel):
     )
 
 
+class CodeT5Suggestion(BaseModel):
+    """
+    The local CodeT5+ model's candidate, run through the same
+    validate -> verify pipeline as AISuggestion, plus a measured speed
+    comparison on anything that verifies -- matches the plan's Day 4 UI
+    sketch ("Behaviour / Speed / Complexity" together), a fuller report
+    than the plain AI suggestions get, since there's only ever one
+    candidate here rather than up to three.
+    """
+    code: str = Field(..., description="The raw generated candidate code")
+    diff: str = Field(..., description="Unified diff against original_code")
+    validated: bool = Field(..., description="True if ast.parse passed on the generated code")
+    verified: Optional[bool] = Field(
+        None,
+        description="Same meaning as AISuggestion.verified: True if differential testing "
+                     "confirmed it behaves the same as the original; False if a genuine "
+                     "disagreement was found; None if verification wasn't attempted "
+                     "(invalid Python, or ambiguous which function to test) -- None is NOT "
+                     "evidence of correctness either way.",
+    )
+    verification_note: Optional[str] = None
+    performance: Optional[PerformanceComparison] = Field(
+        None,
+        description="Measured speed vs. original_code -- only attempted when verified is "
+                     "True, same reasoning as the rule-refactor performance field: timing "
+                     "code that might compute something different isn't meaningful.",
+    )
+
+
 class FunctionComplexity(BaseModel):
     """Big-O for one function, analysed on its own."""
     name: str = Field(..., description="Function name")
@@ -242,10 +281,26 @@ class RefactorResponse(BaseModel):
                      "when refactored_code is identical to original_code (nothing to compare) "
                      "or the syntax gate rejected the input.",
     )
+    codet5_available: bool = Field(
+        ..., description="False if the local CodeT5+ model isn't installed/downloaded — "
+                          "drives the frontend toggle's enabled/disabled state.",
+    )
+    codet5_suggestion: Optional[CodeT5Suggestion] = Field(
+        None,
+        description="Only present when use_codet5=True was requested AND codet5_available "
+                     "is True AND generation produced *something* (didn't time out/error). "
+                     "None here does not by itself mean the model failed — check "
+                     "codet5_suggestion.verified once present for whether it's trustworthy; "
+                     "a present-but-unverified suggestion is expected and normal at this "
+                     "model's current accuracy.",
+    )
     summary: str
 
 
 class HealthResponse(BaseModel):
     status: str = "ok"
     ai_configured: bool
+    codet5_available: bool = Field(
+        False, description="False if the local CodeT5+ model isn't installed/downloaded.",
+    )
     version: str = "1.0.0"

@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import CodeEditor from './components/CodeEditor'
 import ReviewPanel from './components/ReviewPanel'
 import RefactorPanel from './components/RefactorPanel'
 import ScoreCard from './components/ScoreCard'
-import { reviewCode, refactorCode } from './api/client'
+import { reviewCode, refactorCode, checkHealth } from './api/client'
 import styles from './App.module.css'
 
 const TABS = ['Review', 'Refactor']
@@ -37,6 +37,20 @@ export default function App() {
   const [refactorResult, setRefactorResult] = useState(null)
   const [level, setLevel] = useState('medium')
   const [useAi, setUseAi] = useState(true)
+  // Off by default -- experimental, opt-in per the plan (34% differential-
+  // verification pass rate as of introduction). codet5Available starts
+  // false and is confirmed via /health on mount, not assumed true, so the
+  // checkbox is never offered as usable before we actually know it is --
+  // same "disabled with a tooltip when unavailable, not silently missing"
+  // requirement the plan states explicitly for this specific toggle.
+  const [useCodet5, setUseCodet5] = useState(false)
+  const [codet5Available, setCodet5Available] = useState(false)
+
+  useEffect(() => {
+    checkHealth()
+      .then(health => setCodet5Available(Boolean(health?.codet5_available)))
+      .catch(() => setCodet5Available(false)) // backend unreachable -- stay disabled, not an error state here
+  }, [])
 
   const handleReview = useCallback(async () => {
     if (!code.trim()) return
@@ -60,7 +74,7 @@ export default function App() {
     setError(null)
     setRefactorResult(null)
     try {
-      const result = await refactorCode(code, level, useAi)
+      const result = await refactorCode(code, level, useAi, useCodet5 && codet5Available)
       setRefactorResult(result)
       setActiveTab('Refactor')
     } catch (err) {
@@ -68,7 +82,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [code, level, useAi])
+  }, [code, level, useAi, useCodet5, codet5Available])
 
   return (
     <div className={styles.app}>
@@ -100,6 +114,26 @@ export default function App() {
               className={styles.checkbox}
             />
             Use AI
+          </label>
+          <label
+            className={styles.controlLabel}
+            title={
+              codet5Available
+                ? 'Experimental local model, runs on our server (not your browser) — usually 5–15 seconds. ' +
+                  'Every result is behaviourally verified before being shown; the model is right about ' +
+                  '1 in 3 times, so "no suggestion" is a normal, expected outcome, not an error.'
+                : 'CodeT5+ model not installed on the backend — this is a local, opt-in feature ' +
+                  'that requires the fine-tuned model files to be present.'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={useCodet5}
+              disabled={!codet5Available}
+              onChange={e => setUseCodet5(e.target.checked)}
+              className={styles.checkbox}
+            />
+            CodeT5+ (local, slower)
           </label>
           <button
             className={`${styles.btn} ${styles.btnSecondary}`}

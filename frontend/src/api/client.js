@@ -52,9 +52,15 @@ export async function reviewCode(code) {
  * @param {string} code
  * @param {'low'|'medium'|'high'} level
  * @param {boolean} useAi
+ * @param {boolean} useCodet5  Local, experimental model — off by default,
+ *   only meaningful when the backend reports codet5_available (see
+ *   checkHealth()). Silently ignored (no error) by the backend if the
+ *   model isn't installed, but the caller should still gate the checkbox
+ *   on health.codet5_available so the option isn't offered when it can't
+ *   do anything.
  */
-export async function refactorCode(code, level = 'medium', useAi = true) {
-  return _post('/refactor', { code, level, use_ai: useAi })
+export async function refactorCode(code, level = 'medium', useAi = true, useCodet5 = false) {
+  return _post('/refactor', { code, level, use_ai: useAi, use_codet5: useCodet5 })
 }
 
 /**

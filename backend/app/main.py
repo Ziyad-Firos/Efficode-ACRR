@@ -12,18 +12,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Optional
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
-from app.parser import parse_code
+from app.parser import is_valid_python, parse_code
 from app.review import run_all_checks
 from app.refactor.orchestrator import run_all_rules
 from app.refactor.diff import make_diff
-from app.refactor.ai_client import get_ai_suggestions
+from app.refactor.ai_client import _verify_suggestion, get_ai_suggestions
 from app.ml.complexity_predictor import predict_complexity
-from app.models import OptimizationLevel, PerformanceComparison, SpeedSample
+from app.ml.t5.refactor_model import codet5_available, generate_refactor as codet5_generate
+from app.models import CodeT5Suggestion, OptimizationLevel, PerformanceComparison, SpeedSample
 from app.verify.differential import compare_performance
 
 # ---------------------------------------------------------------------------
@@ -120,6 +122,7 @@ def health():
     return jsonify({
         "status": "ok",
         "ai_configured": bool(ai_key),
+        "codet5_available": codet5_available(),
         "version": "1.0.0",
         "analysers": analysers,
         "degraded": degraded,
@@ -197,6 +200,52 @@ def _build_performance_comparison(original_code: str, refactored_code: str) -> P
     )
 
 
+def _build_codet5_suggestion(original_code: str) -> Optional[CodeT5Suggestion]:
+    """
+    Generate a candidate with the local CodeT5+ model and run it through the
+    exact same validate -> verify pipeline Groq suggestions get
+    (is_valid_python, then ai_client._verify_suggestion's differential
+    check), plus a measured speed comparison on anything that verifies --
+    the plan's Day 4 UI sketch shows "Behaviour / Speed / Complexity"
+    together, a fuller report than plain AI suggestions get since there's
+    only ever one CodeT5+ candidate per request, not up to three.
+
+    Runs on original_code, not the rule-engine's refactored_code -- the
+    model was trained exclusively on unoptimised "before" snippets
+    (app/ml/t5/pairs.py), so feeding it already-rule-cleaned code would
+    shift the input away from what it actually learned on.
+
+    Returns None only when generation itself produced nothing (model
+    unavailable, timed out, or crashed) -- a generated-but-wrong candidate
+    still returns a CodeT5Suggestion with verified=False/None, so the
+    frontend can show *why* it wasn't trusted instead of nothing at all,
+    per the plan: "show it, if at all, in a separate rejected section."
+    """
+    generated = codet5_generate(original_code)
+    if generated is None:
+        return None
+
+    valid = is_valid_python(generated)
+    verified: Optional[bool] = None
+    verification_note: Optional[str] = None
+    performance = None
+    if valid:
+        verified, verification_note = _verify_suggestion(original_code, generated)
+        if verified is True:
+            performance = _build_performance_comparison(original_code, generated)
+
+    diff = make_diff(original_code, generated) if valid else ""
+
+    return CodeT5Suggestion(
+        code=generated,
+        diff=diff,
+        validated=valid,
+        verified=verified,
+        verification_note=verification_note,
+        performance=performance,
+    )
+
+
 @app.post("/refactor")
 def refactor():
     """
@@ -217,6 +266,7 @@ def refactor():
     code = code.strip()
     level_str = data.get("level", "medium")
     use_ai = bool(data.get("use_ai", True))
+    use_codet5 = bool(data.get("use_codet5", False))
 
     if not code:
         return jsonify({"error": "Missing required field: code"}), 400
@@ -229,7 +279,8 @@ def refactor():
     except ValueError:
         level = OptimizationLevel.MEDIUM
 
-    logger.info("POST /refactor  code_len=%d  level=%s  use_ai=%s", len(code), level, use_ai)
+    logger.info("POST /refactor  code_len=%d  level=%s  use_ai=%s  use_codet5=%s",
+                len(code), level, use_ai, use_codet5)
 
     # Syntax gate
     parse_result = parse_code(code)
@@ -244,6 +295,8 @@ def refactor():
             "correctness_concerns": [],
             "complexity": None,
             "performance": None,
+            "codet5_available": codet5_available(),
+            "codet5_suggestion": None,
             "summary": f"Cannot refactor: syntax error — {parse_result.error}",
         })
 
@@ -270,6 +323,16 @@ def refactor():
     performance = None
     if rule_result.refactored_code != code:
         performance = _build_performance_comparison(code, rule_result.refactored_code)
+
+    # Local CodeT5+ model (optional, opt-in, experimental -- see
+    # _build_codet5_suggestion's docstring and CodeT5Suggestion's field docs
+    # for the full reasoning). codet5_model_available is checked regardless
+    # of use_codet5 so the frontend always knows the toggle's true state,
+    # even on a request that didn't ask for it.
+    codet5_model_available = codet5_available()
+    codet5_suggestion = None
+    if use_codet5 and codet5_model_available:
+        codet5_suggestion = _build_codet5_suggestion(code)
 
     # Diff
     diff = make_diff(code, rule_result.refactored_code)
@@ -302,6 +365,13 @@ def refactor():
         summary_parts.append(
             f"{n} possible correctness concern{'s' if n != 1 else ''} flagged"
         )
+    if codet5_suggestion is not None:
+        summary_parts.append(
+            "CodeT5+ suggestion available"
+            + (" (behaviourally verified)" if codet5_suggestion.verified is True
+               else " (not verified — review before trusting)" if codet5_suggestion.verified is not False
+               else " (failed verification — shown for reference only)")
+        )
     if not summary_parts:
         summary_parts = ["No changes needed — code looks clean"]
 
@@ -315,6 +385,8 @@ def refactor():
         "correctness_concerns": correctness_concerns,
         "complexity": complexity.model_dump() if complexity else None,
         "performance": performance.model_dump() if performance else None,
+        "codet5_available": codet5_model_available,
+        "codet5_suggestion": codet5_suggestion.model_dump() if codet5_suggestion else None,
         "summary": ", ".join(summary_parts) + ".",
     })
 

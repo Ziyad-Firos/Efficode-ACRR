@@ -70,6 +70,15 @@ export default function RefactorPanel({ result, loading }) {
             {aiCount > 0 && <span className={styles.count}>{aiCount}</span>}
           </button>
         )}
+        {result.codet5_suggestion && (
+          <button
+            className={`${styles.subTab} ${view === 'codet5' ? styles.subTabActive : ''}`}
+            onClick={() => setView('codet5')}
+          >
+            🧪 CodeT5+
+            {result.codet5_suggestion.verified === true && <span className={styles.count}>✓</span>}
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -204,6 +213,10 @@ export default function RefactorPanel({ result, loading }) {
               </div>
             ))}
           </div>
+        )}
+
+        {view === 'codet5' && result.codet5_suggestion && (
+          <CodeT5Report suggestion={result.codet5_suggestion} />
         )}
       </div>
     </div>
@@ -362,6 +375,53 @@ function PerformanceReport({ performance }) {
           actual complexity-class improvement, not just a constant-factor cleanup.
         </p>
       )}
+    </div>
+  )
+}
+
+function CodeT5Report({ suggestion }) {
+  // verified is Optional: True/False/None, same three-state meaning as
+  // AISuggestion.verified elsewhere in this file — None means "not
+  // checked" (invalid Python, or an ambiguous target function), not
+  // evidence the suggestion is trustworthy.
+  return (
+    <div className={styles.aiList}>
+      <p className={styles.perfIntro}>
+        Experimental local model — right about 1 in 3 times as of its introduction. Every
+        result shown here has already been run and behaviourally checked against your
+        original code before you see it; a suggestion that failed that check is shown
+        below for reference, not hidden, but should not be trusted or applied.
+      </p>
+      <div className={`${styles.aiCard} ${!suggestion.validated ? styles.aiInvalid : ''}`}>
+        <div className={styles.aiHeader}>
+          <span className={styles.aiNum}>CodeT5+ suggestion</span>
+          {suggestion.validated
+            ? <span className={styles.validated}>✅ Valid Python</span>
+            : <span className={styles.invalid}>⚠️ Could not validate</span>
+          }
+          {suggestion.verified === true && (
+            <span className={styles.verified} title={suggestion.verification_note}>
+              ✅ Behaviour verified
+            </span>
+          )}
+          {suggestion.verified === false && (
+            <span className={styles.notVerified} title={suggestion.verification_note}>
+              ❌ Behaviour differs from original
+            </span>
+          )}
+        </div>
+        {suggestion.verified === false && suggestion.verification_note && (
+          <p className={styles.verificationWarning}>{suggestion.verification_note}</p>
+        )}
+        {suggestion.diff && (
+          <pre className={styles.aiDiff}>{suggestion.diff}</pre>
+        )}
+      </div>
+
+      {/* Only ever present when verified === true — the backend refuses to
+          time a candidate it hasn't confirmed behaves correctly, same
+          reasoning as the rule-refactor performance comparison. */}
+      {suggestion.performance && <PerformanceReport performance={suggestion.performance} />}
     </div>
   )
 }
