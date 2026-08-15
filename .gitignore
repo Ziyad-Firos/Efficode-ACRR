@@ -134,6 +134,7 @@ STUDENT_GUIDE.md
 # Local-only planning docs — working notes, not meant for GitHub
 CODEBERT_PLAN_V2.md
 CODET5_PLAN.md
+CODET5_TRAINING_GUIDE.md
 node_modules/venv/Lib/site-packages/torch/lib/dnnl.lib
 venv/Lib/site-packages/torch/lib/torch_cpu.dll
 venv/Lib/site-packages/torch/lib/dnnl.lib
