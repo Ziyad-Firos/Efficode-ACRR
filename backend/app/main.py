@@ -23,7 +23,8 @@ from app.refactor.orchestrator import run_all_rules
 from app.refactor.diff import make_diff
 from app.refactor.ai_client import get_ai_suggestions
 from app.ml.complexity_predictor import predict_complexity
-from app.models import OptimizationLevel
+from app.models import OptimizationLevel, PerformanceComparison, SpeedSample
+from app.verify.differential import compare_performance
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -165,6 +166,37 @@ def review():
     return jsonify(result.model_dump())
 
 
+def _build_performance_comparison(original_code: str, refactored_code: str) -> PerformanceComparison:
+    """
+    Wraps app.verify.differential.compare_performance's SpeedupResult into
+    the API's PerformanceComparison shape. Only called when refactored_code
+    actually differs from original_code -- timing two identical strings is
+    wasted sandbox work for a result that's trivially "no difference".
+    """
+    result = compare_performance(original_code, refactored_code)
+    if not result.measured:
+        return PerformanceComparison(measured=False, note=result.note)
+
+    samples = [
+        SpeedSample(
+            size=s.size,
+            original_ms=s.original_seconds * 1000,
+            refactored_ms=s.candidate_seconds * 1000,
+        )
+        for s in result.samples
+    ]
+    speedup = None
+    if samples and samples[-1].refactored_ms > 0:
+        speedup = samples[-1].original_ms / samples[-1].refactored_ms
+
+    return PerformanceComparison(
+        measured=True,
+        samples=samples,
+        speedup=speedup,
+        complexity_class_likely_changed=result.complexity_class_likely_changed,
+    )
+
+
 @app.post("/refactor")
 def refactor():
     """
@@ -211,6 +243,7 @@ def refactor():
             "ai_available": False,
             "correctness_concerns": [],
             "complexity": None,
+            "performance": None,
             "summary": f"Cannot refactor: syntax error — {parse_result.error}",
         })
 
@@ -227,8 +260,16 @@ def refactor():
             rule_refactored_code=rule_result.refactored_code,
         ))
 
-    # Complexity prediction
+    # Complexity prediction (ML guess at the Big-O class)
     complexity = predict_complexity(code, rule_result.refactored_code)
+
+    # Performance comparison (actual sandboxed timing, not a prediction).
+    # Skipped entirely when the rule engine made no change -- original and
+    # refactored are the same string, timing them separately would just be
+    # noise around "identical".
+    performance = None
+    if rule_result.refactored_code != code:
+        performance = _build_performance_comparison(code, rule_result.refactored_code)
 
     # Diff
     diff = make_diff(code, rule_result.refactored_code)
@@ -273,6 +314,7 @@ def refactor():
         "ai_available": ai_available,
         "correctness_concerns": correctness_concerns,
         "complexity": complexity.model_dump() if complexity else None,
+        "performance": performance.model_dump() if performance else None,
         "summary": ", ".join(summary_parts) + ".",
     })
 

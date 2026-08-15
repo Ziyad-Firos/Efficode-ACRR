@@ -75,12 +75,16 @@ export default function RefactorPanel({ result, loading }) {
       {/* Content */}
       <div className={styles.content}>
         {view === 'complexity' && (
-          result.complexity
-            ? <ComplexityReport complexity={result.complexity} />
-            : <p className={styles.empty}>
-                Complexity prediction unavailable — scikit-learn is not installed
-                on the backend.
-              </p>
+          <>
+            {result.complexity
+              ? <ComplexityReport complexity={result.complexity} />
+              : <p className={styles.empty}>
+                  Complexity prediction unavailable — scikit-learn is not installed
+                  on the backend.
+                </p>
+            }
+            {result.performance && <PerformanceReport performance={result.performance} />}
+          </>
         )}
 
         {view === 'diff' && (
@@ -301,6 +305,62 @@ function ComplexityReport({ complexity }) {
           <h4 className={styles.suggestionTitle}>💡 How to make it faster</h4>
           <p className={styles.suggestionText}>{complexity.suggestion}</p>
         </div>
+      )}
+    </div>
+  )
+}
+
+function PerformanceReport({ performance }) {
+  if (!performance.measured) {
+    // measured=false is not "no difference" -- it means the comparison
+    // wasn't attempted or couldn't complete (see note). Worth a quiet
+    // explanation rather than silently showing nothing, same reasoning as
+    // the AI suggestions' verified=false note.
+    return (
+      <div className={styles.perfReport}>
+        <h4 className={styles.reasonTitle}>⏱️ Measured speed</h4>
+        <p className={styles.empty}>
+          Not measured{performance.note ? ` — ${performance.note}` : '.'}
+        </p>
+      </div>
+    )
+  }
+
+  const fmt = (ms) => (ms < 1 ? `${(ms * 1000).toFixed(0)}µs` : `${ms.toFixed(2)}ms`)
+
+  return (
+    <div className={styles.perfReport}>
+      <h4 className={styles.reasonTitle}>⏱️ Measured speed</h4>
+      <p className={styles.perfIntro}>
+        Original vs. refactored code, actually run in a sandbox on generated inputs of
+        increasing size — not predicted, timed.
+        {performance.speedup != null && (
+          <span className={styles.perfHeadline}>
+            {' '}~{performance.speedup.toFixed(1)}x faster at the largest tested size.
+          </span>
+        )}
+      </p>
+
+      <div className={styles.perfTable}>
+        <div className={`${styles.perfRow} ${styles.perfRowHead}`}>
+          <span>Input size</span>
+          <span>Your code</span>
+          <span>Refactored</span>
+        </div>
+        {performance.samples.map((s, i) => (
+          <div key={i} className={styles.perfRow}>
+            <span>n = {s.size}</span>
+            <span>{fmt(s.original_ms)}</span>
+            <span className={styles.perfFaster}>{fmt(s.refactored_ms)}</span>
+          </div>
+        ))}
+      </div>
+
+      {performance.complexity_class_likely_changed && (
+        <p className={styles.unchangedNote}>
+          The gap widens with input size rather than staying constant — this looks like an
+          actual complexity-class improvement, not just a constant-factor cleanup.
+        </p>
       )}
     </div>
   )

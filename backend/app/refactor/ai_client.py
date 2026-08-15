@@ -47,7 +47,6 @@ Environment variables:
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import logging
@@ -58,7 +57,7 @@ from typing import List, Optional, Tuple
 from app.models import AISuggestion
 from app.parser import is_valid_python
 from app.refactor.diff import make_diff
-from app.verify.differential import verify_equivalent
+from app.verify.differential import resolve_sole_function_name, verify_equivalent
 
 logger = logging.getLogger("acrr.refactor.ai_client")
 
@@ -239,30 +238,15 @@ def _verify_suggestion(original_code: str, candidate_code: str) -> Tuple[Optiona
 
     Deliberately conservative about WHICH function to test: only when the
     original code defines exactly one top-level function, and the
-    candidate defines a function with that same name. A multi-function
-    file, or a suggestion that renames the function, is left unverified
-    rather than guessed at.
+    candidate defines a function with that same name — see
+    resolve_sole_function_name in app/verify/differential.py, shared with
+    the refactor-performance comparison for the same reason. A
+    multi-function file, or a suggestion that renames the function, is
+    left unverified rather than guessed at.
     """
-    try:
-        orig_tree = ast.parse(original_code)
-    except SyntaxError:
-        return None, "original code does not parse"
-
-    orig_functions = [n.name for n in orig_tree.body
-                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    if len(orig_functions) != 1:
-        return None, f"expected exactly 1 top-level function in the original, found {len(orig_functions)}"
-    func_name = orig_functions[0]
-
-    try:
-        cand_tree = ast.parse(candidate_code)
-    except SyntaxError:
-        return None, "candidate does not parse"  # shouldn't happen -- already validated by is_valid_python
-
-    cand_functions = {n.name for n in ast.walk(cand_tree)
-                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    if func_name not in cand_functions:
-        return None, f"candidate does not define '{func_name}' -- can't verify a renamed function"
+    func_name, note = resolve_sole_function_name(original_code, candidate_code)
+    if func_name is None:
+        return None, note
 
     try:
         result = verify_equivalent(

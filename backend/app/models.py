@@ -129,6 +129,46 @@ class AISuggestion(BaseModel):
     )
 
 
+class SpeedSample(BaseModel):
+    """One measured data point: both versions run on the same synthetic
+    input of the given size, timed inside a sandboxed subprocess (see
+    app/verify/differential.py:measure_speedup) so interpreter startup
+    noise doesn't swamp real differences. Milliseconds, not seconds — the
+    measured gaps at realistic sizes are often sub-millisecond."""
+    size: int = Field(..., description="Synthetic input size used for this measurement")
+    original_ms: float = Field(..., description="Original code's measured time, in milliseconds")
+    refactored_ms: float = Field(..., description="Refactored code's measured time, in milliseconds")
+
+
+class PerformanceComparison(BaseModel):
+    measured: bool = Field(
+        ..., description="True if a real timing comparison was made. False means it wasn't "
+                          "attempted or didn't complete — see note — NOT that the two versions "
+                          "run at the same speed.",
+    )
+    samples: List[SpeedSample] = Field(
+        default_factory=list,
+        description="Empty when measured is False. Multiple sizes, not one run, so a constant-"
+                     "factor speedup can be told apart from an actual complexity-class change.",
+    )
+    speedup: Optional[float] = Field(
+        None,
+        description="original_ms / refactored_ms at the largest measured size — the single "
+                     "headline number, e.g. 4.2 means ~4.2x faster. None when measured is False.",
+    )
+    complexity_class_likely_changed: bool = Field(
+        False,
+        description="True if the speed gap widens with input size rather than staying roughly "
+                     "constant, i.e. more than a constant-factor cleanup happened.",
+    )
+    note: str = Field(
+        "",
+        description="Why measurement wasn't attempted or didn't complete, when measured is "
+                     "False (e.g. no scalable parameter, code didn't verify as equivalent). "
+                     "Empty when measured is True.",
+    )
+
+
 class FunctionComplexity(BaseModel):
     """Big-O for one function, analysed on its own."""
     name: str = Field(..., description="Function name")
@@ -194,6 +234,14 @@ class RefactorResponse(BaseModel):
                      "ai_available is False.",
     )
     complexity: Optional[ComplexityPrediction] = None
+    performance: Optional[PerformanceComparison] = Field(
+        None,
+        description="Measured (not predicted) runtime comparison between original_code and "
+                     "refactored_code, distinct from the ML-predicted 'complexity' field above "
+                     "— that's a Big-O class guess, this is an actual sandboxed stopwatch. None "
+                     "when refactored_code is identical to original_code (nothing to compare) "
+                     "or the syntax gate rejected the input.",
+    )
     summary: str
 
 

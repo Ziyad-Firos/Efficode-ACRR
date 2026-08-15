@@ -290,6 +290,66 @@
   color: #8892b0;
 }
 
+/* ── Measured performance ──────────────────────────────────────────────── */
+/* Companion to the complexity report above, but measured (sandboxed
+   timing) rather than predicted. Appended below it in the same tab, not a
+   separate one -- "your code timed" belongs next to "your code's Big-O". */
+
+.perfReport {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid #232733;
+}
+
+.perfIntro {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8892b0;
+}
+
+.perfHeadline {
+  color: #55efc4;
+  font-weight: 600;
+}
+
+.perfTable {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #232733;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.perfRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+}
+
+.perfRow:not(:last-child) {
+  border-bottom: 1px solid #1a1d27;
+}
+
+.perfRowHead {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8892b0;
+  background: #14171f;
+}
+
+.perfFaster {
+  color: #55efc4;
+}
+
 /* ── AI suggestions ─────────────────────────────────────────────────────── */
 /* One card per suggestion. Cards get a red tint when the generated code
    didn't validate as Python; the verified/notVerified badge is a separate

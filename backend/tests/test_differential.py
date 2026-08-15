@@ -23,7 +23,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.verify.differential import measure_speedup, verify_equivalent  # noqa: E402
+from app.verify.differential import (  # noqa: E402
+    compare_performance,
+    measure_speedup,
+    resolve_sole_function_name,
+    verify_equivalent,
+)
 from app.verify.inputs import infer_param_kind  # noqa: E402
 import ast  # noqa: E402
 
@@ -195,6 +200,84 @@ def test_speedup_refuses_functions_with_no_sized_parameter():
     )
     assert result.measured is False
     assert "nothing to scale" in result.note
+
+
+# ---------------------------------------------------------------------------
+# resolve_sole_function_name / compare_performance — the /refactor
+# "measured speed" feature
+# ---------------------------------------------------------------------------
+
+def test_resolve_sole_function_name_happy_path():
+    name, note = resolve_sole_function_name(
+        "def f(x):\n    return x\n",
+        "def f(x):\n    return x + 0\n",
+    )
+    assert name == "f"
+    assert note is None
+
+
+def test_resolve_sole_function_name_rejects_multi_function_original():
+    name, note = resolve_sole_function_name(
+        "def f(x):\n    return x\ndef g(x):\n    return x\n",
+        "def f(x):\n    return x\n",
+    )
+    assert name is None
+    assert "exactly 1" in note
+
+
+def test_resolve_sole_function_name_rejects_renamed_candidate():
+    name, note = resolve_sole_function_name(
+        "def f(x):\n    return x\n",
+        "def h(x):\n    return x\n",
+    )
+    assert name is None
+    assert "renamed" in note
+
+
+def test_compare_performance_measures_a_real_complexity_change():
+    """End-to-end happy path through the same wrapper main.py's /refactor
+    route calls: resolve -> verify -> measure, all in one call."""
+    original = (
+        "def common_elements(list_a, list_b):\n"
+        "    result = []\n"
+        "    for x in list_a:\n"
+        "        if x in list_b:\n"
+        "            result.append(x)\n"
+        "    return result\n"
+    )
+    candidate = (
+        "def common_elements(list_a, list_b):\n"
+        "    lookup = set(list_b)\n"
+        "    result = []\n"
+        "    for x in list_a:\n"
+        "        if x in lookup:\n"
+        "            result.append(x)\n"
+        "    return result\n"
+    )
+    result = compare_performance(original, candidate)
+    assert result.measured is True
+    assert result.complexity_class_likely_changed is True
+    assert len(result.samples) > 0
+
+
+def test_compare_performance_skips_timing_when_not_equivalent():
+    """A genuinely wrong 'refactor' must not get timed at all -- a speed
+    comparison between code that computes different results is meaningless
+    and would be actively misleading if shown to a user."""
+    original = "def double(n):\n    return n * 2\n"
+    wrong = "def double(n):\n    return n * 3\n"
+    result = compare_performance(original, wrong)
+    assert result.measured is False
+    assert "equivalent" in result.note
+
+
+def test_compare_performance_fails_cleanly_on_ambiguous_function():
+    result = compare_performance(
+        "def f(x):\n    return x\ndef g(x):\n    return x\n",
+        "def f(x):\n    return x\n",
+    )
+    assert result.measured is False
+    assert "exactly 1" in result.note
 
 
 # ---------------------------------------------------------------------------

@@ -82,6 +82,43 @@ def _find_function(tree: ast.AST, func_name: str) -> Optional[ast.AST]:
     return None
 
 
+def resolve_sole_function_name(original_code: str, candidate_code: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Decide which function verify_equivalent/measure_speedup should compare,
+    deliberately conservatively: only when the original defines exactly one
+    top-level function, and the candidate defines a function with that same
+    name somewhere in it. A multi-function file, or a candidate that renames
+    the function, returns (None, <why>) rather than guessing — comparing the
+    wrong function silently would be worse than not comparing at all.
+
+    Returns (func_name, None) on success, or (None, note) on failure. Shared
+    by ai_client.py's suggestion verification and the refactor-performance
+    comparison below, so this judgment call is made in exactly one place.
+    """
+    try:
+        orig_tree = ast.parse(original_code)
+    except SyntaxError as exc:
+        return None, f"original code does not parse: {exc}"
+
+    orig_functions = [n.name for n in orig_tree.body
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if len(orig_functions) != 1:
+        return None, f"expected exactly 1 top-level function in the original, found {len(orig_functions)}"
+    func_name = orig_functions[0]
+
+    try:
+        cand_tree = ast.parse(candidate_code)
+    except SyntaxError as exc:
+        return None, f"candidate does not parse: {exc}"
+
+    cand_functions = {n.name for n in ast.walk(cand_tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if func_name not in cand_functions:
+        return None, f"candidate does not define '{func_name}' -- can't compare a renamed function"
+
+    return func_name, None
+
+
 def _outcome_signature(result: SandboxResult) -> str:
     """
     A comparable summary of one sandbox run: either its returned value, or
@@ -292,3 +329,51 @@ def measure_speedup(
     trend_changed = ratios[-1] > ratios[0] * 2 and ratios[-1] > 1.5
 
     return SpeedupResult(measured=True, samples=samples, complexity_class_likely_changed=trend_changed)
+
+
+def compare_performance(
+    original_code: str,
+    candidate_code: str,
+    verify_trials: int = 8,
+    verify_timeout: float = 2.0,
+) -> SpeedupResult:
+    """
+    End-to-end "how much faster is this, really" comparison for the common
+    case of a refactor of a single function against itself — resolves which
+    function to compare, confirms the two versions are actually equivalent
+    first (measure_speedup refuses to do this itself — see its docstring —
+    because timing two functions that compute different things isn't a
+    meaningful comparison), then measures speed. Every way this can fail to
+    produce a real measurement returns SpeedupResult(measured=False, note=...)
+    instead of raising, so callers never need a try/except around this.
+
+    verify_trials/verify_timeout are deliberately smaller than
+    verify_equivalent's own defaults (20 trials / 3s) — this runs as part of
+    the main synchronous /refactor response, not an optional AI-suggestion
+    check, so it needs to stay fast enough not to make every refactor request
+    with an actual code change noticeably slower.
+    """
+    func_name, resolve_note = resolve_sole_function_name(original_code, candidate_code)
+    if func_name is None:
+        return SpeedupResult(measured=False, note=resolve_note or "could not resolve a function to compare")
+
+    try:
+        verification = verify_equivalent(
+            original_code, candidate_code, func_name,
+            trials=verify_trials, timeout=verify_timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 -- a timing feature must never break the response
+        return SpeedupResult(measured=False, note=f"verification failed to run: {exc}")
+
+    if not verification.equivalent:
+        return SpeedupResult(
+            measured=False,
+            note="refactored code did not verify as behaviourally equivalent -- timing "
+                 "skipped, since a speed comparison between code that computes different "
+                 "results isn't meaningful",
+        )
+
+    try:
+        return measure_speedup(original_code, candidate_code, func_name)
+    except Exception as exc:  # noqa: BLE001 -- same reasoning as above
+        return SpeedupResult(measured=False, note=f"speed measurement failed to run: {exc}")
