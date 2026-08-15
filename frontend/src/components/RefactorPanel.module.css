@@ -289,3 +289,101 @@
   line-height: 1.55;
   color: #8892b0;
 }
+
+/* ── AI suggestions ─────────────────────────────────────────────────────── */
+/* One card per suggestion. Cards get a red tint when the generated code
+   didn't validate as Python; the verified/notVerified badge is a separate
+   signal (did we run it and compare behaviour) layered on top of that. */
+
+.aiList {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.aiCard {
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: #14171f;
+  border: 1px solid #232733;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aiInvalid {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.04);
+}
+
+.aiHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.aiNum {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8892b0;
+  font-weight: 600;
+}
+
+.validated,
+.invalid,
+.verified,
+.notVerified {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.validated,
+.verified {
+  color: #55efc4;
+  background: rgba(85, 239, 196, 0.12);
+}
+
+.invalid,
+.notVerified {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.aiExplanation {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+
+.verificationWarning {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border-left: 3px solid #ff6b6b;
+  background: rgba(255, 107, 107, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ff6b6b;
+}
+
+.aiDiff {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: #0f1117;
+  border: 1px solid #232733;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c9d1d9;
+  overflow-x: auto;
+  white-space: pre;
+}

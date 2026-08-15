@@ -130,6 +130,10 @@ logs/
 
 # Local-only student guide — not for GitHub, kept as a personal learning doc
 STUDENT_GUIDE.md
+
+# Local-only planning docs — working notes, not meant for GitHub
+CODEBERT_PLAN_V2.md
+CODET5_PLAN.md
 node_modules/venv/Lib/site-packages/torch/lib/dnnl.lib
 venv/Lib/site-packages/torch/lib/torch_cpu.dll
 venv/Lib/site-packages/torch/lib/dnnl.lib
