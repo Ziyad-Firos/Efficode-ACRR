@@ -127,6 +127,9 @@ flan_t5_fine_tuned/
 .idea/
 *.log
 logs/
+
+# Local-only student guide — not for GitHub, kept as a personal learning doc
+STUDENT_GUIDE.md
 node_modules/venv/Lib/site-packages/torch/lib/dnnl.lib
 venv/Lib/site-packages/torch/lib/torch_cpu.dll
 venv/Lib/site-packages/torch/lib/dnnl.lib
