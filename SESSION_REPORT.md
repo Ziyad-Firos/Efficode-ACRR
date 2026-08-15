@@ -387,7 +387,7 @@ so it carries into future sessions on this project.
 
 ---
 
-## 4. Current state (as of the CodeT5+ integration commit — see §6)
+## 4. Current state (as of `d9a6316`)
 
 | Area | Status |
 |---|---|
@@ -422,7 +422,7 @@ so it carries into future sessions on this project.
 ## 6. Commit log, this session
 
 ```
-<pending>  Wire CodeT5+ into /refactor as an opt-in, verification-gated toggle
+d9a6316  Wire CodeT5+ into /refactor as an opt-in, verification-gated toggle
 29f232b  Lower T5 fine-tuning LR further (2e-5 -> 5e-6) based on a real trend
 140bbc8  Fix T5 training divergence to NaN in FP32 (distinct from the FP16 issue)
 eda6429  Keep CodeT5+ manual post-training checklist local-only
