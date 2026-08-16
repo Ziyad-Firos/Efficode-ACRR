@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import CodeEditor from './components/CodeEditor'
 import ReviewPanel from './components/ReviewPanel'
 import RefactorPanel from './components/RefactorPanel'
@@ -36,7 +36,10 @@ export default function App() {
   const [reviewResult, setReviewResult] = useState(null)
   const [refactorResult, setRefactorResult] = useState(null)
   const [level, setLevel] = useState('medium')
-  const [useAi, setUseAi] = useState(true)
+  // Off by default: an external network call to a third-party LLM is not
+  // something to fire silently on every keystroke-adjacent action -- opt
+  // in deliberately, same reasoning as CodeT5+ below.
+  const [useAi, setUseAi] = useState(false)
   // Off by default -- experimental, opt-in per the plan (34% differential-
   // verification pass rate as of introduction). codet5Available starts
   // false and is confirmed via /health on mount, not assumed true, so the
@@ -84,6 +87,27 @@ export default function App() {
     }
   }, [code, level, useAi, useCodet5, codet5Available])
 
+  // The output pane mirrors the input until a refactor has actually run --
+  // showing an empty/blank box before that point would look broken rather
+  // than "nothing to show yet". Once a result exists, it keeps showing
+  // that result's refactored code even if the input is edited afterward
+  // (isStale below flags that case) rather than silently reverting to a
+  // mirror, which would make a real result disappear without explanation.
+  const outputCode = refactorResult ? refactorResult.refactored_code : code
+  // .trim() because the backend strips the code before echoing it back as
+  // original_code -- comparing against the raw (unstripped) editor value
+  // made this true immediately after every refactor, purely from a
+  // trailing newline, not an actual edit. Caught by testing this live,
+  // not assumed correct.
+  const isStale = Boolean(refactorResult) && refactorResult.original_code !== code.trim()
+  const outputChanged = Boolean(refactorResult) && refactorResult.original_code !== refactorResult.refactored_code
+
+  const activeIssueCount = useMemo(() => reviewResult?.issues?.length ?? 0, [reviewResult])
+  const activeRuleCount = useMemo(
+    () => refactorResult?.applied_rules?.filter(r => r.applied !== false).length ?? 0,
+    [refactorResult]
+  )
+
   return (
     <div className={styles.app}>
       {/* Header */}
@@ -106,7 +130,7 @@ export default function App() {
               <option value="high">High</option>
             </select>
           </label>
-          <label className={styles.controlLabel}>
+          <label className={styles.controlLabel} title="Calls an external AI provider (Groq) for deeper suggestions — off by default so nothing leaves your machine unless you ask.">
             <input
               type="checkbox"
               checked={useAi}
@@ -152,19 +176,34 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main layout */}
+      {/* Main layout: input/output code side by side on top, a full-width
+          details panel underneath. */}
       <main className={styles.main}>
-        {/* Left pane — code editor */}
-        <section className={styles.editorPane}>
-          <div className={styles.paneHeader}>
-            <span className={styles.paneTitle}>📝 Your Code</span>
-            <span className={styles.hint}>Python only</span>
-          </div>
-          <CodeEditor value={code} onChange={setCode} />
-        </section>
+        <div className={styles.codeRow}>
+          <section className={styles.codeBox}>
+            <div className={styles.paneHeader}>
+              <span className={styles.paneTitle}>📝 Input</span>
+              <span className={styles.hint}>Python only</span>
+            </div>
+            <CodeEditor value={code} onChange={setCode} />
+          </section>
 
-        {/* Right pane — results */}
-        <section className={styles.resultsPane}>
+          <section className={styles.codeBox}>
+            <div className={styles.paneHeader}>
+              <span className={styles.paneTitle}>
+                📤 Output
+                {outputChanged && <span className={styles.outputBadge}>refactored</span>}
+              </span>
+              {isStale
+                ? <span className={styles.hint} title="Input has changed since this was generated — re-run Refactor to update it.">⚠️ outdated — re-run</span>
+                : <span className={styles.hint}>{refactorResult ? 'read-only' : 'mirrors input'}</span>
+              }
+            </div>
+            <CodeEditor value={outputCode} readOnly />
+          </section>
+        </div>
+
+        <section className={styles.detailsBox}>
           {/* Score card (shown when review result available) */}
           {reviewResult?.quality_score && (
             <ScoreCard score={reviewResult.quality_score} />
@@ -187,14 +226,10 @@ export default function App() {
               >
                 {tab}
                 {tab === 'Review' && reviewResult && (
-                  <span className={styles.badge}>
-                    {reviewResult.issues?.length ?? 0}
-                  </span>
+                  <span className={styles.badge}>{activeIssueCount}</span>
                 )}
                 {tab === 'Refactor' && refactorResult && (
-                  <span className={styles.badge}>
-                    {refactorResult.applied_rules?.length ?? 0}
-                  </span>
+                  <span className={styles.badge}>{activeRuleCount}</span>
                 )}
               </button>
             ))}

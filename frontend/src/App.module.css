@@ -101,25 +101,40 @@
 .btnSecondary:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── Main layout ─────────────────────────────────────────────────────────── */
+/* Top row: input/output code side by side, a fixed share of the viewport
+   so both stay comfortably readable. Bottom: one full-width details panel
+   for everything else (score, review issues, refactor rules, AI/CodeT5+
+   suggestions) -- one wide surface instead of a narrow side column, since
+   diffs, tables and explanatory text all read better at full width. */
 .main {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 0;
-}
-@media (max-width: 768px) {
-  .main { grid-template-columns: 1fr; }
 }
 
-.editorPane, .resultsPane {
+.codeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 0 0 42vh;
+  min-height: 260px;
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 768px) {
+  .codeRow { grid-template-columns: 1fr; flex-basis: auto; }
+}
+
+.codeBox {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
-
-.editorPane { border-right: 1px solid var(--border); }
+.codeBox:first-child { border-right: 1px solid var(--border); }
+@media (max-width: 768px) {
+  .codeBox:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+  .codeBox { min-height: 220px; }
+}
 
 .paneHeader {
   display: flex;
@@ -130,11 +145,29 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.paneTitle { font-size: 0.85rem; font-weight: 600; }
-.hint { font-size: 0.75rem; color: var(--text-dim); }
+.paneTitle { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; }
+.hint { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
 
-/* ── Results pane ────────────────────────────────────────────────────────── */
-.resultsPane { background: var(--bg); }
+.outputBadge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--success);
+  background: rgba(85, 239, 196, 0.14);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+/* ── Details panel (below the code row) ─────────────────────────────────── */
+.detailsBox {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
 
 .errorBanner {
   margin: 12px;
