@@ -32,6 +32,11 @@ export default function App() {
   const [code, setCode] = useState(EXAMPLE_CODE)
   const [activeTab, setActiveTab] = useState('Review')
   const [loading, setLoading] = useState(false)
+  // Separate from `loading` (shared button-disable flag for both actions)
+  // specifically so the Output box can show its own loading state only
+  // when a refactor is actually in flight, not when a Review request is —
+  // `loading` alone can't distinguish the two mid-request.
+  const [refactorLoading, setRefactorLoading] = useState(false)
   const [error, setError] = useState(null)
   const [reviewResult, setReviewResult] = useState(null)
   const [refactorResult, setRefactorResult] = useState(null)
@@ -74,6 +79,7 @@ export default function App() {
   const handleRefactor = useCallback(async () => {
     if (!code.trim()) return
     setLoading(true)
+    setRefactorLoading(true)
     setError(null)
     setRefactorResult(null)
     try {
@@ -84,16 +90,18 @@ export default function App() {
       setError(err.message)
     } finally {
       setLoading(false)
+      setRefactorLoading(false)
     }
   }, [code, level, useAi, useCodet5, codet5Available])
 
-  // The output pane mirrors the input until a refactor has actually run --
-  // showing an empty/blank box before that point would look broken rather
-  // than "nothing to show yet". Once a result exists, it keeps showing
+  // The output pane stays empty (a placeholder, not a live editor) until a
+  // refactor has actually run -- it's the RESULT of clicking Refactor, not
+  // a live preview of the input. Once a result exists, it keeps showing
   // that result's refactored code even if the input is edited afterward
-  // (isStale below flags that case) rather than silently reverting to a
-  // mirror, which would make a real result disappear without explanation.
-  const outputCode = refactorResult ? refactorResult.refactored_code : code
+  // (isStale below flags that case) rather than silently reverting to
+  // something else, which would make a real result disappear without
+  // explanation.
+  const outputCode = refactorResult ? refactorResult.refactored_code : ''
   // .trim() because the backend strips the code before echoing it back as
   // original_code -- comparing against the raw (unstripped) editor value
   // made this true immediately after every refactor, purely from a
@@ -118,47 +126,51 @@ export default function App() {
           <span className={styles.logoSub}>Automated Code Review & Refactoring</span>
         </div>
         <div className={styles.headerControls}>
-          <label className={styles.controlLabel}>
-            Level
-            <select
-              className={styles.select}
-              value={level}
-              onChange={e => setLevel(e.target.value)}
+          <div className={styles.controlsGroup}>
+            <label className={styles.controlLabel}>
+              Level
+              <select
+                className={styles.select}
+                value={level}
+                onChange={e => setLevel(e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <span className={styles.controlDivider} />
+            <label className={styles.controlLabel} title="Calls an external AI provider (Groq) for deeper suggestions — off by default so nothing leaves your machine unless you ask.">
+              <input
+                type="checkbox"
+                checked={useAi}
+                onChange={e => setUseAi(e.target.checked)}
+                className={styles.checkbox}
+              />
+              Use AI
+            </label>
+            <span className={styles.controlDivider} />
+            <label
+              className={styles.controlLabel}
+              title={
+                codet5Available
+                  ? 'Experimental local model, runs on our server (not your browser) — usually 5–15 seconds. ' +
+                    'Every result is behaviourally verified before being shown; the model is right about ' +
+                    '1 in 3 times, so "no suggestion" is a normal, expected outcome, not an error.'
+                  : 'CodeT5+ model not installed on the backend — this is a local, opt-in feature ' +
+                    'that requires the fine-tuned model files to be present.'
+              }
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </label>
-          <label className={styles.controlLabel} title="Calls an external AI provider (Groq) for deeper suggestions — off by default so nothing leaves your machine unless you ask.">
-            <input
-              type="checkbox"
-              checked={useAi}
-              onChange={e => setUseAi(e.target.checked)}
-              className={styles.checkbox}
-            />
-            Use AI
-          </label>
-          <label
-            className={styles.controlLabel}
-            title={
-              codet5Available
-                ? 'Experimental local model, runs on our server (not your browser) — usually 5–15 seconds. ' +
-                  'Every result is behaviourally verified before being shown; the model is right about ' +
-                  '1 in 3 times, so "no suggestion" is a normal, expected outcome, not an error.'
-                : 'CodeT5+ model not installed on the backend — this is a local, opt-in feature ' +
-                  'that requires the fine-tuned model files to be present.'
-            }
-          >
-            <input
-              type="checkbox"
-              checked={useCodet5}
-              disabled={!codet5Available}
-              onChange={e => setUseCodet5(e.target.checked)}
-              className={styles.checkbox}
-            />
-            CodeT5+ (local, slower)
-          </label>
+              <input
+                type="checkbox"
+                checked={useCodet5}
+                disabled={!codet5Available}
+                onChange={e => setUseCodet5(e.target.checked)}
+                className={styles.checkbox}
+              />
+              CodeT5+ (local, slower)
+            </label>
+          </div>
           <button
             className={`${styles.btn} ${styles.btnSecondary}`}
             onClick={handleReview}
@@ -196,10 +208,26 @@ export default function App() {
               </span>
               {isStale
                 ? <span className={styles.hint} title="Input has changed since this was generated — re-run Refactor to update it.">⚠️ outdated — re-run</span>
-                : <span className={styles.hint}>{refactorResult ? 'read-only' : 'mirrors input'}</span>
+                : refactorResult && <span className={styles.hint}>read-only</span>
               }
             </div>
-            <CodeEditor value={outputCode} readOnly />
+            {refactorResult
+              ? <CodeEditor value={outputCode} readOnly />
+              : (
+                <div className={styles.outputPlaceholder}>
+                  {refactorLoading
+                    ? <>
+                        <span className={styles.spinner} />
+                        <p>Refactoring…</p>
+                      </>
+                    : <>
+                        <span className={styles.outputPlaceholderIcon}>✨</span>
+                        <p>Click <strong>Refactor</strong> to see the optimised code here.</p>
+                      </>
+                  }
+                </div>
+              )
+            }
           </section>
         </div>
 

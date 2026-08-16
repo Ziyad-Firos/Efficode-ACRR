@@ -41,29 +41,87 @@
 .headerControls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* Select + toggles live inside one soft "pill" so they read as one related
+   settings group, visually distinct from the action buttons next to them. */
+.controlsGroup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.controlDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
 }
 
 .controlLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 0.82rem;
   color: var(--text-dim);
   cursor: pointer;
+  transition: color 0.15s;
 }
+.controlLabel:hover { color: var(--text); }
 
 .select {
-  background: var(--surface2);
+  background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: 6px;
   font-size: 0.82rem;
   cursor: pointer;
+  transition: border-color 0.15s;
 }
+.select:hover, .select:focus { border-color: var(--accent); outline: none; }
 
-.checkbox { accent-color: var(--accent); cursor: pointer; }
+/* Toggle switch, not a bare checkbox -- appearance: none strips the native
+   look entirely and the track/thumb are drawn with :before, animated on
+   :checked. Same element, same onChange wiring as before; only the look
+   changed. */
+.checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.checkbox::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.15s, background 0.15s;
+}
+.checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox:checked::before {
+  transform: translateX(15px);
+  background: #fff;
+}
 .checkbox:disabled { cursor: not-allowed; }
 
 /* A controlLabel wrapping a disabled checkbox dims and swaps to the
@@ -74,24 +132,26 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+.controlLabel:has(.checkbox:disabled):hover { color: var(--text-dim); }
 
 .btn {
-  padding: 7px 16px;
+  padding: 8px 18px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn:not(:disabled):active { transform: scale(0.97); }
 
 .btnPrimary {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-h));
   color: #fff;
+  box-shadow: 0 2px 10px rgba(91, 143, 249, 0.35);
 }
-.btnPrimary:not(:disabled):hover { background: var(--accent-h); }
+.btnPrimary:not(:disabled):hover { box-shadow: 0 4px 14px rgba(91, 143, 249, 0.5); }
 
 .btnSecondary {
   background: var(--surface2);
@@ -158,6 +218,32 @@
   padding: 2px 7px;
   border-radius: 10px;
 }
+
+/* Output box before a refactor has run -- a real empty state instead of a
+   blank editor, which would look broken rather than "nothing here yet". */
+.outputPlaceholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 20px;
+}
+.outputPlaceholder strong { color: var(--text); }
+.outputPlaceholderIcon { font-size: 1.8rem; opacity: 0.6; }
+
+.spinner {
+  width: 24px; height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Details panel (below the code row) ─────────────────────────────────── */
 .detailsBox {
