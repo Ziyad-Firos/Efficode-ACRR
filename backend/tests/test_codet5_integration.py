@@ -64,6 +64,7 @@ def test_refactor_with_use_codet5_degrades_cleanly():
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["codet5_available"] is False
+    assert data["codet5_requested"] is True  # the request DID ask for it
     assert data["codet5_suggestion"] is None
     # every other field must still be present and normal -- this feature
     # being off must not have any effect on the rest of the response.
@@ -73,9 +74,25 @@ def test_refactor_with_use_codet5_degrades_cleanly():
     assert "refactored_code" in data
 
 
+def test_codet5_requested_reflects_the_actual_request():
+    """
+    codet5_requested exists specifically so the frontend can tell "wasn't
+    asked for" apart from "asked for, but produced nothing" -- both give
+    codet5_suggestion: null, so without this field they're indistinguishable.
+    Confirmed on both sides here, not just the True case above.
+    """
+    client = app.test_client()
+    code = "def f(x):\n    return x + 1\n"
+    resp = client.post("/refactor", json={"code": code, "use_ai": False, "use_codet5": False})
+    data = resp.get_json()
+    assert data["codet5_requested"] is False
+    assert "codet5" not in data["summary"].lower()
+
+
 def test_refactor_syntax_error_path_has_consistent_codet5_shape():
     client = app.test_client()
-    resp = client.post("/refactor", json={"code": "def f(:\n", "use_ai": False})
+    resp = client.post("/refactor", json={"code": "def f(:\n", "use_ai": False, "use_codet5": True})
     data = resp.get_json()
     assert data["codet5_suggestion"] is None
     assert "codet5_available" in data
+    assert data["codet5_requested"] is True

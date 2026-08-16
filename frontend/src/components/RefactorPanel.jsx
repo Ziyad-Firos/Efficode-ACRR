@@ -36,6 +36,19 @@ export default function RefactorPanel({ result, loading }) {
             ⚡ AI unavailable — rule-based only
           </span>
         )}
+        {/* codet5_requested distinguishes "wasn't asked for" (no badge,
+            same as unchecking the box) from "asked for, model available,
+            but produced nothing this time" (timeout/generation error) --
+            without it those two look identical, since codet5_suggestion
+            is null either way. */}
+        {result.codet5_requested && result.codet5_available && !result.codet5_suggestion && (
+          <span
+            className={styles.aiUnavailable}
+            title="Generation timed out or errored — occasional and expected for this experimental model. Try again, or a shorter/simpler function."
+          >
+            🧪 CodeT5+ attempted — no suggestion this time
+          </span>
+        )}
       </div>
 
       {/* Sub-tabs */}

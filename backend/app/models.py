@@ -285,6 +285,12 @@ class RefactorResponse(BaseModel):
         ..., description="False if the local CodeT5+ model isn't installed/downloaded — "
                           "drives the frontend toggle's enabled/disabled state.",
     )
+    codet5_requested: bool = Field(
+        ..., description="Echoes the request's use_codet5 — lets the frontend tell 'wasn't "
+                          "asked for' apart from 'asked for, but produced nothing' (generation "
+                          "timeout/error) when codet5_suggestion is null. Without this, both "
+                          "cases look identical to the UI.",
+    )
     codet5_suggestion: Optional[CodeT5Suggestion] = Field(
         None,
         description="Only present when use_codet5=True was requested AND codet5_available "

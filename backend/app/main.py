@@ -296,6 +296,7 @@ def refactor():
             "complexity": None,
             "performance": None,
             "codet5_available": codet5_available(),
+            "codet5_requested": use_codet5,
             "codet5_suggestion": None,
             "summary": f"Cannot refactor: syntax error — {parse_result.error}",
         })
@@ -372,6 +373,15 @@ def refactor():
                else " (not verified — review before trusting)" if codet5_suggestion.verified is not False
                else " (failed verification — shown for reference only)")
         )
+    elif use_codet5 and codet5_model_available:
+        # Requested, available, but generate_refactor() returned nothing --
+        # timeout or generation error. Without this, "asked for it and it
+        # produced nothing" is silently indistinguishable from "never
+        # asked for it" in the response, which is the exact gap
+        # codet5_requested (see models.py) exists to close on the frontend
+        # side too -- said here as well since the summary line is the
+        # first thing a user reads.
+        summary_parts.append("CodeT5+ attempted but produced no usable suggestion this time")
     if not summary_parts:
         summary_parts = ["No changes needed — code looks clean"]
 
@@ -386,6 +396,7 @@ def refactor():
         "complexity": complexity.model_dump() if complexity else None,
         "performance": performance.model_dump() if performance else None,
         "codet5_available": codet5_model_available,
+        "codet5_requested": use_codet5,
         "codet5_suggestion": codet5_suggestion.model_dump() if codet5_suggestion else None,
         "summary": ", ".join(summary_parts) + ".",
     })
