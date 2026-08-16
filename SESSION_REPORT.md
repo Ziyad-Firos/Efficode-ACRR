@@ -372,6 +372,24 @@ main venv (no `torch` installed) confirmed to degrade to
 `codet5_available: false` everywhere, including through the full live
 browser flow, not only in isolated unit tests.
 
+**Attempted improvement, and the final stopping decision.** Two new
+trained families (`running_sum_to_cumulative`, `running_count_to_incremental`)
+were added to `pairs.py`, targeting a weak spot the 34% run's own
+per-family breakdown identified (`minmax_in_loop_to_running` generalized
+far worse than `pop0_to_deque`). A second training run against the
+expanded 250-pair/10-family dataset produced **8% pass rate, 1/2 held-out
+families** — worse on both metrics, not better. Full reasoning and the
+decision to stop chasing a higher number in `CODET5_FINETUNING_RESULT.md`
+(repo root, committed): three learning-rate reductions across four real
+runs produced non-monotonic results (catastrophic, catastrophic, 34%,
+8%), never a converging trend, and reproducibility itself was never
+tested (both real numbers are single runs, not averages) — a fourth
+hyperparameter guess stopped being well-motivated. The live toggle keeps
+using the 34% run's weights (the better of the two), unaffected by this
+decision — stopping further training attempts is not a removal, the
+verification-gate reasoning that made 34% safe to ship holds identically
+at any accuracy number.
+
 ### 3.7 Working pattern established this session
 
 Every pasted "analysis report" this session (the adversarial code review
@@ -387,41 +405,45 @@ so it carries into future sessions on this project.
 
 ---
 
-## 4. Current state (as of `d9a6316`)
+## 4. Current state (as of `0aaf079`)
 
 | Area | Status |
 |---|---|
-| Test suite | **128/128 passing** (`pytest`), 23/23 (`verify_changes.py`) |
+| Test suite | **126 passed, 4 skipped** (`pytest` — skips are environment-conditional: torch happens to be installed on this dev machine, see `test_codet5_integration.py`), 23/23 (`verify_changes.py`) |
 | Complexity model | 149 algorithms, 24 features, ~97.6% nested CV, fully audited |
 | Review engine | 12 smell rules, Big-O feeds the grade, all deterministic checks working |
 | Refactor engine | Rule-based transforms working; AI layer working via Groq; measured (not predicted) speed comparison on `/refactor` |
 | AI layer | **Working end-to-end via Groq.** Gemini blocked at the account level (not fixable from code, documented). Ollama available but unconfigured. |
 | CodeBERT | Evaluated, attempted, fully investigated, not used — deterministic `SMELL012` shipped instead |
-| CodeT5+ | **Shipped as an experimental, off-by-default toggle.** 34% differential-verification pass rate, generalizes to both held-out families (gate 2 passes, gate 1 doesn't) — see §3.6. Every generation independently re-verified before being shown, same guarantee as Groq suggestions. |
+| CodeT5+ | **Shipped as an experimental, off-by-default toggle, and FINAL — training attempts stopped.** Best real result: 34% pass rate, generalizes to 2/2 held-out families. A follow-up attempt with an expanded dataset regressed to 8%/1 family; three learning-rate reductions across four runs never converged, so further tuning stopped being well-motivated. Full result and reasoning: `CODET5_FINETUNING_RESULT.md`. The live toggle still uses the better (34%) run's weights — stopping training is not a removal. |
 | Deployment | **Not started, deliberately deferred.** Render/Vercel configs written (`render.yaml`, `backend/Procfile`, `backend/Dockerfile`), never executed |
-| Documentation | `HANDOFF.md` (status/next-steps), `CODEBERT_DUPLICATE_DETECTION_PLAN.md` (full investigation record), this file. `CODET5_PLAN.md`, `CODET5_TRAINING_GUIDE.md`, `CODET5_MANUAL_CHECKLIST.md`, `STUDENT_GUIDE.md` are local-only (gitignored). |
+| Documentation | `HANDOFF.md` (status/next-steps), `CODEBERT_DUPLICATE_DETECTION_PLAN.md` (CodeBERT investigation record), `CODET5_FINETUNING_RESULT.md` (CodeT5+ final result), this file. `CODET5_PLAN.md`, `CODET5_TRAINING_GUIDE.md`, `CODET5_MANUAL_CHECKLIST.md`, `STUDENT_GUIDE.md` are local-only (gitignored). |
 
 ## 5. Open items, in priority order
 
-1. **Deployment** — the only remaining blocker to shipping live. Configs
-   are ready; needs Render + Vercel accounts actually walked through. Note:
-   `torch`/`transformers` (CodeT5+'s optional dependencies) add ~2.5-3.5 GB
-   and are not installed by a plain `pip install -r requirements.txt` —
-   deploying without `requirements-optional.txt` is the intended default,
-   CodeT5+ simply reports unavailable.
-2. **Improve CodeT5+'s pass rate**, if pursued further — the diagnosed
-   weak spot is the "running accumulator" concept (`minmax_in_loop_to_running`
-   at 8% vs. `pop0_to_deque` at 60%), not present in any currently-trained
-   family. Not required to keep the current toggle shipped; it works today
-   at its current accuracy because of the verification gate.
-3. **Gemini account access** — not blocking (Groq covers the AI layer), but
+1. **Deployment** — the only remaining open item in the whole project.
+   Configs are ready; needs Render + Vercel accounts actually walked
+   through. Note: `torch`/`transformers` (CodeT5+'s optional dependencies)
+   add ~2.5-3.5 GB and are not installed by a plain `pip install -r
+   requirements.txt` — deploying without `requirements-optional.txt` is
+   the intended default, CodeT5+ simply reports unavailable.
+2. **Gemini account access** — not blocking (Groq covers the AI layer), but
    worth resolving eventually for redundancy. Requires the account owner's
    Google Cloud console, not fixable from this codebase.
-4. Everything else from the original `HANDOFF.md` list is done.
+3. Everything else from the original `HANDOFF.md` list is done. CodeT5+
+   training is deliberately closed out (see `CODET5_FINETUNING_RESULT.md`)
+   — not reopened without new evidence (e.g. a reproducibility check or a
+   different optimizer, both documented as untried in that file).
 
 ## 6. Commit log, this session
 
 ```
+<pending>  Document the final CodeT5+ result and stop training attempts
+0aaf079  Add 2 trained families targeting the diagnosed generalization weak spot
+faab836  UI polish: output box is empty until Refactor runs, styled toggles/buttons
+a9f1ad6  Redesign layout: input/output code side by side, details panel below
+05c34d1  Close a blind spot: distinguish 'not requested' from 'requested, no result'
+b006fe5  Fill in the CodeT5+ integration commit hash in SESSION_REPORT.md
 d9a6316  Wire CodeT5+ into /refactor as an opt-in, verification-gated toggle
 29f232b  Lower T5 fine-tuning LR further (2e-5 -> 5e-6) based on a real trend
 140bbc8  Fix T5 training divergence to NaN in FP32 (distinct from the FP16 issue)
