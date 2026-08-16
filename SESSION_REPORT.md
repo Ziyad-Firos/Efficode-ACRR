@@ -405,7 +405,7 @@ so it carries into future sessions on this project.
 
 ---
 
-## 4. Current state (as of `0aaf079`)
+## 4. Current state (as of `09cc607`)
 
 | Area | Status |
 |---|---|
@@ -438,7 +438,7 @@ so it carries into future sessions on this project.
 ## 6. Commit log, this session
 
 ```
-<pending>  Document the final CodeT5+ result and stop training attempts
+09cc607  Document the final CodeT5+ result and stop training attempts
 0aaf079  Add 2 trained families targeting the diagnosed generalization weak spot
 faab836  UI polish: output box is empty until Refactor runs, styled toggles/buttons
 a9f1ad6  Redesign layout: input/output code side by side, details panel below
