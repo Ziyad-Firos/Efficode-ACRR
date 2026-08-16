@@ -25,17 +25,28 @@ applied to a different dataset.
 Scope, stated honestly
 ------------------------
 The plan calls for 15-20 transformation families x ~250 mutations each
-(4,000-5,000 pairs). This implements 8 families — diverse, each a genuine
+(4,000-5,000 pairs). This implements 10 families — diverse, each a genuine
 complexity-class change verifiable by measure_speedup, deliberately
 avoiding transformations with inherent output ambiguity (see the
 pair_sum_count family's docstring for why "find the first matching pair"
 was rejected as a template shape after it produced a real bug in
 tests/test_differential.py's own calibration). ~25 instances per family
-(~200 pairs) keeps full validation — every single pair, no sampling —
+(~250 pairs) keeps full validation — every single pair, no sampling —
 under a few minutes. Scaling to the full 4,000-5,000 is a mechanical
 extension of this same infrastructure (more families in the same shape,
 more instances per family), not a new engineering problem; not done here
 given the time this would add versus the plan's day budget.
+
+The last 2 families (running_sum_to_cumulative, running_count_to_incremental)
+were added later than the original 8, specifically to teach a concept a
+real fine-tuning run showed was missing -- see
+_gen_running_sum_to_cumulative's docstring for the full reasoning. Both
+are TRAINED, not held out: the held-out set (build_dataset.py's
+_holdout_families) is pinned explicitly to the original two
+(minmax_in_loop_to_running, pop0_to_deque) specifically so results stay
+comparable across training runs as more trained families are added —
+letting the held-out set silently shift with FAMILIES' length would break
+every existing "34% pass rate, gate 2 passes" comparison point.
 
 Mutation strategy
 --------------------
@@ -318,6 +329,82 @@ def _gen_minmax_in_loop_to_running(rng: random.Random) -> TemplateResult:
     return before, after, fn, {}
 
 
+def _gen_running_sum_to_cumulative(rng: random.Random) -> TemplateResult:
+    """
+    O(n^2) -> O(n) -- recomputing sum() over a growing slice at every
+    index, instead of tracking a running total incrementally.
+
+    Added specifically to address a diagnosed weak spot, not part of the
+    original 6-family training set: the first real go/no-go-eligible
+    fine-tuning run (34% pass rate, gate 2 passing) generalized well to
+    pop0_to_deque (15/25) but poorly to minmax_in_loop_to_running (2/25)
+    -- the one held-out family requiring the "maintain a running value
+    across a growing window instead of rescanning it" concept, which none
+    of the 6 trained families taught explicitly. This template and
+    _gen_running_count_to_incremental below teach that same general
+    concept through two different concrete operations (sum, then a
+    conditional count) WITHOUT duplicating minmax_in_loop_to_running's own
+    shape -- the point is generalizing the underlying idea, not
+    memorizing a near-copy of the held-out test itself, which would
+    invalidate the held-out comparison rather than actually improve it.
+    """
+    fn = rng.choice(["running_total", "cumulative_sum", "prefix_sums"])
+    nums = rng.choice(["nums", "values", "amounts"])
+    acc = rng.choice(["result", "output", "totals"])
+    before = (
+        f"def {fn}({nums}):\n"
+        f"    {acc} = []\n"
+        f"    for i in range(len({nums})):\n"
+        f"        window = {nums}[:i + 1]\n"
+        f"        {acc}.append(sum(window))\n"
+        f"    return {acc}\n"
+    )
+    after = (
+        f"def {fn}({nums}):\n"
+        f"    {acc} = []\n"
+        f"    total = 0\n"
+        f"    for value in {nums}:\n"
+        f"        total = total + value\n"
+        f"        {acc}.append(total)\n"
+        f"    return {acc}\n"
+    )
+    return before, after, fn, {}
+
+
+def _gen_running_count_to_incremental(rng: random.Random) -> TemplateResult:
+    """O(n^2) -> O(n) -- recounting how many elements-so-far satisfy a
+    condition by rescanning the growing window every index, instead of
+    incrementing a running counter. See _gen_running_sum_to_cumulative's
+    docstring for why this family exists."""
+    fn = rng.choice(["running_count_above", "count_so_far", "tally_matching"])
+    nums = rng.choice(["nums", "values", "readings"])
+    threshold = rng.choice(["threshold", "limit", "cutoff"])
+    acc = rng.choice(["result", "output", "counts"])
+    before = (
+        f"def {fn}({nums}, {threshold}):\n"
+        f"    {acc} = []\n"
+        f"    for i in range(len({nums})):\n"
+        f"        window = {nums}[:i + 1]\n"
+        f"        count = 0\n"
+        f"        for value in window:\n"
+        f"            if value > {threshold}:\n"
+        f"                count = count + 1\n"
+        f"        {acc}.append(count)\n"
+        f"    return {acc}\n"
+    )
+    after = (
+        f"def {fn}({nums}, {threshold}):\n"
+        f"    {acc} = []\n"
+        f"    count = 0\n"
+        f"    for value in {nums}:\n"
+        f"        if value > {threshold}:\n"
+        f"            count = count + 1\n"
+        f"        {acc}.append(count)\n"
+        f"    return {acc}\n"
+    )
+    return before, after, fn, {}
+
+
 def _gen_pop0_to_deque(rng: random.Random) -> TemplateResult:
     """O(n^2) -> O(n) -- list.pop(0) shifts every remaining element (O(n)
     per call), so draining a list this way is O(n^2). deque.popleft() is
@@ -354,6 +441,12 @@ FAMILIES: List[TransformationFamily] = [
     TransformationFamily("sort_in_loop_to_once", "O(k*n log n) -> O(n log n + k)", _gen_sort_in_loop_to_once),
     TransformationFamily("minmax_in_loop_to_running", "O(n^2) -> O(n)", _gen_minmax_in_loop_to_running),
     TransformationFamily("pop0_to_deque", "O(n^2) -> O(n)", _gen_pop0_to_deque),
+    # Added to address the diagnosed weak spot (see
+    # _gen_running_sum_to_cumulative's docstring) -- both TRAINED, not
+    # held out, so they teach the "running accumulator" concept that no
+    # earlier family covered explicitly.
+    TransformationFamily("running_sum_to_cumulative", "O(n^2) -> O(n)", _gen_running_sum_to_cumulative),
+    TransformationFamily("running_count_to_incremental", "O(n^2) -> O(n)", _gen_running_count_to_incremental),
 ]
 
 

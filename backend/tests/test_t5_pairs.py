@@ -17,7 +17,8 @@ against every family, at a SMALL instance count (2 per family, not
 build_dataset.py's default 25) specifically to keep this in the regular
 test suite's time budget while still exercising every template for real —
 build_dataset.py's own run (python -m app.ml.t5.build_dataset) is the full
-200-pair validated dataset, run separately, not as part of pytest.
+250-pair validated dataset (10 families x 25), run separately, not as part
+of pytest.
 """
 
 from __future__ import annotations
@@ -73,7 +74,11 @@ def test_holdout_is_by_family_not_by_row():
     holdout = _holdout_families()
     all_families = {f.name for f in FAMILIES}
     assert holdout < all_families  # proper subset, not empty, not everything
-    assert len(holdout) == round(len(FAMILIES) * 0.2)
+    # Pinned explicitly (see build_dataset.py's _HOLDOUT_FAMILY_NAMES) so
+    # results stay comparable across training runs as more trained
+    # families get added -- this is no longer a fraction-of-however-many-
+    # families-exist calculation, it's these two, specifically, always.
+    assert holdout == {"minmax_in_loop_to_running", "pop0_to_deque"}
 
 
 def test_build_dataset_reports_family_membership_correctly():

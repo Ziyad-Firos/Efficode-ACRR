@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import sys
 from pathlib import Path
 
@@ -38,18 +37,55 @@ from app.verify.differential import measure_speedup, verify_equivalent
 logger = logging.getLogger("acrr.ml.t5.build_dataset")
 
 _OUT_PATH = Path(__file__).parent / "pairs_validated.jsonl"
-_HOLDOUT_FRACTION = 0.2
 _VERIFY_TRIALS = 12
 _VERIFY_TIMEOUT = 3.0
 
+# Pinned explicitly, not derived by shuffling whatever families happen to
+# be in FAMILIES at the moment. This used to be a seeded shuffle over
+# FAMILIES taking the first 20% -- which meant every time a family got
+# added (or removed), the shuffle's result over the new, differently-sized
+# list could pick DIFFERENT families as held out, silently invalidating
+# every prior training run's "34% pass rate, generalizes to 2/2 held-out
+# families" result, since those numbers are only meaningful when compared
+# against the same held-out set. Pinning it here means new trained
+# families (see pairs.py's running_sum_to_cumulative / running_count_to_
+# incremental, added specifically to help the model with these two) can
+# be added freely without silently moving the goalposts.
+_HOLDOUT_FAMILY_NAMES = frozenset({"minmax_in_loop_to_running", "pop0_to_deque"})
 
-def _holdout_families(seed: int = 7) -> set:
-    names = [f.name for f in FAMILIES]
-    rng = random.Random(seed)
-    shuffled = names[:]
-    rng.shuffle(shuffled)
-    n_holdout = max(1, round(len(names) * _HOLDOUT_FRACTION))
-    return set(shuffled[:n_holdout])
+
+def _holdout_families() -> set:
+    """
+    Two integrity checks, both real `raise`s rather than `assert` --
+    `assert` is silently stripped entirely under `python -O` /
+    PYTHONOPTIMIZE=1, which would defeat the exact "fail loudly instead of
+    silently invalidating the comparison" purpose this pinning exists for
+    in the first place (caught in review, not assumed safe just because
+    the happy path was tested).
+    """
+    all_names = {f.name for f in FAMILIES}
+
+    missing = _HOLDOUT_FAMILY_NAMES - all_names
+    if missing:
+        raise ValueError(
+            f"Pinned held-out family name(s) not found in FAMILIES: {missing} -- "
+            "a family was renamed or removed in pairs.py without updating "
+            "_HOLDOUT_FAMILY_NAMES here."
+        )
+
+    # The old fraction-based formula (max(1, round(len(names) * 0.2))) could
+    # never reach 100% of FAMILIES for any size >= 2 -- pinning an explicit
+    # set removed that structural guarantee, so it's re-added explicitly:
+    # if every non-held-out family were ever removed from pairs.py, this
+    # would otherwise silently return the entire FAMILIES set, labelling
+    # every generated pair "holdout" and none "train".
+    if len(all_names) <= len(_HOLDOUT_FAMILY_NAMES):
+        raise ValueError(
+            f"_HOLDOUT_FAMILY_NAMES ({sorted(_HOLDOUT_FAMILY_NAMES)}) would cover all of "
+            f"FAMILIES ({sorted(all_names)}) -- nothing would be left to train on."
+        )
+
+    return set(_HOLDOUT_FAMILY_NAMES)
 
 
 def validate_and_build(instances_per_family: int = 25, write: bool = True) -> dict:
